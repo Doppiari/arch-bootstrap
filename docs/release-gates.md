@@ -195,7 +195,7 @@ explicit build/VM gate and physical qualification are recorded separately.
 ### Local development observation, 2026-10-28
 
 Steps 1–4 were exercised for stage 1
-`b9a488fb5234d20b7246b84619d902c4c18abfab`, naming stage 2
+`a68529ba116eff385c8a545e88e72ba6e3f3284e`, naming stage 2
 `96ad3ad257a1ed4b24214e98868ce076e87d3a40`; this is not a frozen release pair.
 Two fresh builders completed with 150-package manifests that match. The image
 comparison correctly failed, with a [concrete cache/timestamp diagnosis](../problems/iso-build-cache-and-timestamps.md).

@@ -10,12 +10,12 @@ No package in [admission.yml](admission.yml) is admitted for redistribution.
 ## Recorded development result
 
 On 2026-10-28 two real fresh Arch builders completed stage-1 commit
-`b9a488fb5234d20b7246b84619d902c4c18abfab`, naming stage 2
+`a68529ba116eff385c8a545e88e72ba6e3f3284e`, naming stage 2
 `96ad3ad257a1ed4b24214e98868ce076e87d3a40`. Each installed and inventoried
 150 packages. Their manifests match; their images differ, with the actual
 cache and timestamp differences [diagnosed here](../problems/iso-build-cache-and-timestamps.md).
 The first image's SHA-256 is
-`ef3b58852cf04680e8541bcbe2536f53d577e54766a76a995cd8620bf4e33baf`.
+`0ad4487932a12b5979b04aeb59ea0f8b21dcd336830fb08e8b385900cca90b11`.
 Both remain development-only, unsigned and ineligible for signing.
 
 That first image passed the separate OVMF/QEMU gate: serial prompt and
@@ -32,7 +32,8 @@ and [an unused initramfs hook and first-boot prompt](../problems/iso-live-hooks-
 The profile now drops MEMDISK as well as PXE hooks, refuses reported build
 errors even after a zero mkarchiso exit, and masks interactive first-boot
 setup while keeping the timezone unset. The only autologin remains tty1's
-root shell.
+root shell. The final input checks also [reject trailing line breaks,
+repeated permissions and ignored mode flags](../problems/iso-exact-input-scalars.md).
 
 The snapshot pins archiso 91-1, keyring 20260909-1 and packages from
 2026-10-25. [build-inputs.yml](build-inputs.yml) names stage 2 by a full commit;
