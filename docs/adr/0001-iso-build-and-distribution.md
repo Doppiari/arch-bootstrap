@@ -4,6 +4,8 @@ Status: Proposed
 
 The [development implementation](../../iso/README.md) supplies the profile,
 build, comparison and verification interfaces and offline refusal tests.
+Two real development builds and a UEFI VM smoke test are recorded in that
+document, with a diagnosed unequal-image comparison and signing ineligible.
 The separate real-build/UEFI VM gate is not a CI result. No release signature
 or production key exists. The
 operator accepts or rejects the decision; the name, the signing key, its
@@ -291,7 +293,7 @@ labelled as such and cannot become a release (see
 | Component | On the live image | Today |
 | --- | --- | --- |
 | this repository's files (`bootstrap`, `installer`, `LICENSE`, ...) | yes | documented, MIT (section 1): meets conditions 1 to 4, the only component that does; condition 5 waits for `iso/admission.yml` |
-| profile files derived from `releng` | yes | `GPL-3.0-or-later`, tracked in `iso/profile/`; pending `ORIGIN.tsv` and the source arrangement (U5) |
+| profile files derived from `releng` | yes | `GPL-3.0-or-later`, tracked in `iso/profile/` with `ORIGIN.tsv`; source arrangement pending (U5) |
 | `base` and its closure | yes | blocked: the closure is not inventoried (U1), source delivery undecided (U5), record licence without a version (U6) |
 | `cryptsetup`, `btrfs-progs`, `dosfstools`, `iwd`, `archlinux-keyring` | yes | documented conditions, source delivery undecided (U5) |
 | `linux`, `mkinitcpio`, `mkinitcpio-archiso`, `arch-install-scripts`, `gptfdisk`, `parted`, `e2fsprogs` | yes | not in the audit: the live payload is not inventoried (U9) |
@@ -387,8 +389,10 @@ are compared by the SHA-256 of the image and of the package manifest:
   and written up under `problems/`. The build stays development-only until a
   fix gives equal digests.
 
-Bit-for-bit reproducibility requires the explicit two-build comparison;
-setting the epoch alone supplies no such result.
+The [first real development comparison](../../problems/iso-build-cache-and-timestamps.md)
+has equal package manifests and different images, with generated cache and
+timestamp differences. Signing remains ineligible. Setting the epoch alone
+supplies no bit-for-bit result.
 
 ## Artefacts, signing and verification
 
@@ -519,6 +523,10 @@ non-commercial remix permission of section 2. The proposal:
 | A checksum file without a signature | the user verification stops at step 3, before anything else is downloaded; `iso/verify-download` refuses; a hash is integrity, not authentication |
 
 ## Next implementation unit
+
+Implemented for local development; [results and invocation](../../iso/README.md)
+record the build/VM observations and remaining gates. The acceptance contract
+below remains the reference.
 
 One unit: "Build an unsigned development image of the proposed profile". It
 creates the proposed files, builds, compares and boots in a VM; it does not

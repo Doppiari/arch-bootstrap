@@ -52,3 +52,8 @@ admits this one disabling overlay to prevent the observed timezone prompt.
 R12 removes the build-log error guard: the observed missing-memdisk binary
 and failed pacman hook records must then make the regression test fail.
 Firmware warnings alone remain a passing control.
+
+P30 adds each canonical stage-2 source tree and artwork to the archive input;
+the real validator refuses and the cleaned controls pass. P31 removes,
+redirects and makes each structured profile input unreadable, and duplicates
+YAML keys. These are refusals, followed by passing restored controls.
