@@ -132,3 +132,23 @@ assert api['check_profile'](root) == []
 print('P26-link-escape: red/restored green')
 PY
 }
+
+@test "rendered development identity accepts required archiso paths and kernel parameters" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+profile = root / 'iso/profile'
+api['render_profile'](profile, 'development', 'a' * 40, 'b' * 40)
+entry = (profile / 'efiboot/loader/entries/01-live.conf').read_text()
+fields = dict(line.split(maxsplit=1) for line in entry.splitlines() if line.strip())
+assert fields['title'].endswith('development build, unsigned, not a release')
+assert fields['options'].split() == api['ENTRY_OPTIONS']
+motd = (profile / 'airootfs/etc/motd').read_text()
+assert 'a' * 40 in motd and 'b' * 40 in motd
+assert 'DEVELOPMENT BUILD, UNSIGNED, NOT A RELEASE' in motd
+assert '{{' not in motd + entry
+PY
+}

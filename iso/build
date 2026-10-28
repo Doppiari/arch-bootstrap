@@ -1221,6 +1221,33 @@ def deterministic_tar(dest: Path, members: list[tuple[str, Path]], epoch: int) -
             tar.addfile(info, io.BytesIO(data))
 
 
+def render_profile(profile: Path, mode: str, commit: str, s_commit: str) -> None:
+    text = MODE_TEXT[mode]
+    motd = profile / "airootfs/etc/motd"
+    motd.write_text(
+        motd.read_text()
+        .replace("{{MODE}}", text.upper())
+        .replace("{{C}}", commit)
+        .replace("{{S}}", s_commit)
+    )
+    entry = profile / "efiboot/loader/entries/01-live.conf"
+    entry.write_text(entry.read_text().replace("{{MODE}}", text))
+    titles = [
+        line.split(maxsplit=1)[1]
+        for line in entry.read_text().splitlines()
+        if line.split() and line.split()[0] == "title"
+    ]
+    if (
+        len(titles) != 1
+        or naming_violation(titles[0])
+        or naming_violation(motd.read_text())
+        or "{{" in motd.read_text() + entry.read_text()
+    ):
+        raise Refusal(
+            "rendered title or motd has an invalid identity or unresolved marker"
+        )
+
+
 def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
     os.umask(0o022)
     os.environ.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
@@ -1319,20 +1346,8 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
         .replace("[options]\n", f"[options]\nCacheDir = {cache}/\n", 1)
     )
     (profile / "pacman.conf").write_text(conf)
-    text = MODE_TEXT[mode]
     s_commit = inputs["stage2"]["commit"]
-    motd = profile / "airootfs/etc/motd"
-    motd.write_text(
-        motd.read_text()
-        .replace("{{MODE}}", text.upper())
-        .replace("{{C}}", commit)
-        .replace("{{S}}", s_commit)
-    )
-    entry = profile / "efiboot/loader/entries/01-live.conf"
-    entry.write_text(entry.read_text().replace("{{MODE}}", text))
-    for rendered in (motd, entry):
-        if naming_violation(rendered.read_text()) or "{{" in rendered.read_text():
-            raise Refusal(f"{rendered}: rendered text is not acceptable")
+    render_profile(profile, mode, commit, s_commit)
     embedded = profile / "airootfs/root/arch-bootstrap"
     archive_tree(root, commit, embedded)
     release = {

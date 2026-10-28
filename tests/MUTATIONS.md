@@ -39,3 +39,8 @@ a foreign-key package refuse. Mutating the profile's policy to `Never` must
 make this behavioural gate fail. Ordinary CI does not run root pacman, build
 an ISO or claim VM evidence. The VM scratch-disk digest is an independent
 before/after oracle for unexpected writes.
+
+P27 renders the actual development title/motd with full C/S and required
+archiso kernel options. Restoring the defective whole-entry naming check
+must reject this valid control. Identity checks still apply to the title
+and motd, and template markers must all be resolved.
