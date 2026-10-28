@@ -237,7 +237,7 @@ and UEFI VM gate is separate from CI. No package is admitted and no
 production key or public download exists. Physical qualification remains
 pending, and the upstream live-medium route above remains available.
 The local development gate produced two real images at
-`b9a488fb5234d20b7246b84619d902c4c18abfab`: their package manifests match,
+`a68529ba116eff385c8a545e88e72ba6e3f3284e`: their package manifests match,
 their [image mismatch is diagnosed](problems/iso-build-cache-and-timestamps.md),
 and the first passed a no-write UEFI VM smoke test. This is software-verified
 only; both images remain unsigned and ineligible for release.
