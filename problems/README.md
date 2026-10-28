@@ -25,3 +25,5 @@ the check that now prevents a regression.
   a restricted container.
 - [`verify-used-an-unlocked-sudo.md`](verify-used-an-unlocked-sudo.md)
   records why the verifier runs as a normal user and never calls sudo.
+- [`iso-notice-file-classification.md`](iso-notice-file-classification.md)
+  records why source/bytecode names are not counted as image notice texts.

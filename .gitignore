@@ -9,3 +9,13 @@ fakedisk-*
 # editor / misc
 *.swp
 *~
+
+# local image builds, package caches, records and throwaway signing fixtures
+*.iso
+*.qcow2
+iso/out/
+iso/work/
+iso/cache/
+iso/local/
+iso/keys/
+__pycache__/

@@ -1,0 +1,13 @@
+# A development pin is not a frozen release-campaign pair.
+schema_version: 1
+mode: development
+archiso:
+  package_version: 91-1
+  tag: v91
+  commit: 723da192226e1c9d5def9168f13332793c82a85e
+archlinux_keyring: 20260909-1
+archive_date: '2026-10-25'
+stage2:
+  repository: https://github.com/importriri/hyperlab-ansible
+  commit: 96ad3ad257a1ed4b24214e98868ce076e87d3a40
+release_key_fingerprint: null

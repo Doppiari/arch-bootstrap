@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$ROOT"
 
-required=(bash shellcheck bats cryptsetup python3 git)
+required=(bash shellcheck bats cryptsetup python3 git gpg sha256sum)
 for tool in "${required[@]}"; do
 	command -v "$tool" >/dev/null \
 		|| { echo "missing verification dependency: $tool" >&2; exit 2; }
@@ -20,6 +20,7 @@ python3 -c 'import yaml' 2>/dev/null \
 	|| { echo "missing verification dependency: python3 yaml (PyYAML)" >&2; exit 2; }
 
 shell_paths=(
+	verify.sh
 	bootstrap
 	installer
 	test-installer
@@ -29,6 +30,10 @@ shell_paths=(
 while IFS= read -r path; do
 	shell_paths+=("$path")
 done < <(find tests -maxdepth 1 -type f -name '*.sh' ! -name 'luks-header-verify.sh' -print | sort)
+
+while IFS= read -r path; do
+	shell_paths+=("$path")
+done < <(find iso -type f -name '*.sh' -print | sort)
 
 printf '%s\n' '== Bash syntax =='
 for path in "${shell_paths[@]}"; do
@@ -41,6 +46,21 @@ for path in "${shell_paths[@]}"; do
 	echo "--- $path"
 	shellcheck -x "$path"
 done
+
+printf '%s\n' '== ISO Python syntax =='
+while IFS= read -r path; do
+	if [[ $(head -n 1 "$path") == '#!/usr/bin/env python3' ]]; then
+		echo "--- $path"
+		python3 - "$path" <<'PYTHON'
+import ast
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+ast.parse(path.read_text(), filename=str(path))
+PYTHON
+	fi
+done < <(find iso -maxdepth 1 -type f -print | sort)
+shellcheck -x tests/iso-profile.bats tests/iso-release.bats
 
 printf '%s\n' '== Bats contracts =='
 bats tests/*.bats

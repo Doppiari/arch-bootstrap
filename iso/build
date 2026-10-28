@@ -1,0 +1,1609 @@
+#!/usr/bin/env python3
+"""Build the installer image, or check what a build would rest on.
+
+iso/build --check-profile [--root DIR]
+    Static validation of iso/ (ADR 0001, acceptance 1). Normal user, offline.
+iso/build --check-admission --mode MODE --manifest TSV [--admission FILE]
+    Compare a package manifest with iso/admission.yml. A release candidate
+    refuses any row without an admitted entry at its exact version.
+iso/build --check-signature-policy --work DIR
+    Root inside a disposable builder only: prove with the real pacman and a
+    throwaway key that the profile's SigLevel installs a signed package from
+    an unsigned database and refuses an unsigned or foreign-key package.
+iso/build --output DIR --work DIR --verify-user USER
+    Root inside a disposable builder only: build the image from the clean
+    commit C, in the mode of iso/build-inputs.yml, and write its records.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import io
+import json
+import os
+import pwd
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+# ---- what ADR 0001 fixes -----------------------------------------------------
+
+DIRECT_REQUESTS = (
+    "base",
+    "linux",
+    "mkinitcpio",
+    "mkinitcpio-archiso",
+    "arch-install-scripts",
+    "gptfdisk",
+    "parted",
+    "cryptsetup",
+    "btrfs-progs",
+    "dosfstools",
+    "e2fsprogs",
+    "iwd",
+)
+EXCLUDED_NAMES = ("openssh", "cloud-init", "reflector", "syslinux")
+ALLOWED_PROFILEDEF = {
+    "iso_name",
+    "iso_label",
+    "iso_publisher",
+    "iso_application",
+    "install_dir",
+    "arch",
+    "bootmodes",
+    "pacman_conf",
+    "airootfs_image_type",
+    "airootfs_image_tool_options",
+    "file_permissions",
+}
+NAMING_FIELDS = (
+    "iso_name",
+    "iso_label",
+    "iso_publisher",
+    "iso_application",
+    "install_dir",
+)
+# The only path a medium text may name that starts with "arch": where the
+# image embeds this repository (ADR 0001, install sequence).
+EMBEDDED_PATH = "/root/arch-bootstrap/"
+MODE_TEXT = {
+    "development": "development build, unsigned, not a release",
+    "release-candidate": "release candidate, not signed by this build",
+}
+ENTRY_OPTIONS = [
+    "archisobasedir=%INSTALL_DIR%",
+    "archisosearchuuid=%ARCHISO_UUID%",
+    "console=ttyS0,115200",
+    "console=tty0",
+]
+ENABLED_UNITS = {
+    "multi-user.target.wants/iwd.service",
+    "multi-user.target.wants/pacman-init.service",
+    "multi-user.target.wants/systemd-networkd.service",
+    "multi-user.target.wants/systemd-resolved.service",
+    "network-online.target.wants/systemd-networkd-wait-online.service",
+    "sockets.target.wants/systemd-networkd.socket",
+}
+UNIT_FILES = {
+    "pacman-init.service",
+    "etc-pacman.d-gnupg.mount",
+    "getty@tty1.service.d/autologin.conf",
+    "systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf",
+    "dbus-org.freedesktop.network1.service",
+    "dbus-org.freedesktop.resolve1.service",
+}
+AUTOLOGIN_EXEC = [
+    "-/usr/bin/agetty",
+    "--noreset",
+    "--noclear",
+    "--autologin",
+    "root",
+    "-",
+    "${TERM}",
+]
+LIVE_HOOKS = [
+    "base",
+    "udev",
+    "modconf",
+    "kms",
+    "memdisk",
+    "archiso",
+    "archiso_loop_mnt",
+    "block",
+    "filesystems",
+    "keyboard",
+]
+# archiso v91 LICENSE: the GPL-3.0 text the profile is distributed under.
+PROFILE_LICENSE_SHA256 = (
+    "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+)
+PROFILE_FILES = {
+    "LICENSE",
+    "ORIGIN.tsv",
+    "airootfs/etc/hostname",
+    "airootfs/etc/locale.conf",
+    "airootfs/etc/mkinitcpio.conf.d/archiso.conf",
+    "airootfs/etc/motd",
+    "airootfs/etc/pacman.d/hooks/uncomment-mirrors.hook",
+    "airootfs/etc/pacman.d/hooks/zzzz99-remove-custom-hooks-from-airootfs.hook",
+    "airootfs/etc/passwd",
+    "airootfs/etc/resolv.conf",
+    "airootfs/etc/shadow",
+    "airootfs/etc/systemd/journald.conf.d/volatile-storage.conf",
+    "airootfs/etc/systemd/logind.conf.d/do-not-suspend.conf",
+    "airootfs/etc/systemd/network/20-ethernet.network",
+    "airootfs/etc/systemd/network/20-wlan.network",
+    "airootfs/etc/systemd/networkd.conf.d/ipv6-privacy-extensions.conf",
+    "airootfs/etc/systemd/resolved.conf.d/archiso.conf",
+    "airootfs/etc/systemd/system-generators/systemd-gpt-auto-generator",
+    "airootfs/etc/systemd/system/dbus-org.freedesktop.network1.service",
+    "airootfs/etc/systemd/system/dbus-org.freedesktop.resolve1.service",
+    "airootfs/etc/systemd/system/etc-pacman.d-gnupg.mount",
+    "airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf",
+    "airootfs/etc/systemd/system/multi-user.target.wants/iwd.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/pacman-init.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/systemd-networkd.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/systemd-resolved.service",
+    "airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service",
+    "airootfs/etc/systemd/system/pacman-init.service",
+    "airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket",
+    "airootfs/etc/systemd/system/systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf",
+    "efiboot/loader/entries/01-live.conf",
+    "efiboot/loader/loader.conf",
+    "packages.x86_64",
+    "pacman.conf",
+    "profiledef.sh",
+}
+PROFILE_LINKS = {
+    "airootfs/etc/resolv.conf": "/run/systemd/resolve/stub-resolv.conf",
+    "airootfs/etc/systemd/system-generators/systemd-gpt-auto-generator": "/dev/null",
+    "airootfs/etc/systemd/system/dbus-org.freedesktop.network1.service": "/usr/lib/systemd/system/systemd-networkd.service",
+    "airootfs/etc/systemd/system/dbus-org.freedesktop.resolve1.service": "/usr/lib/systemd/system/systemd-resolved.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/iwd.service": "/usr/lib/systemd/system/iwd.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/pacman-init.service": "../pacman-init.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/systemd-networkd.service": "/usr/lib/systemd/system/systemd-networkd.service",
+    "airootfs/etc/systemd/system/multi-user.target.wants/systemd-resolved.service": "/usr/lib/systemd/system/systemd-resolved.service",
+    "airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service": "/usr/lib/systemd/system/systemd-networkd-wait-online.service",
+    "airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket": "/usr/lib/systemd/system/systemd-networkd.socket",
+}
+ORIGIN_HEADER = ["path", "type", "target", "origin", "upstream_sha256", "relation"]
+FORBIDDEN_PARTS = (
+    "syslinux",
+    "grub",
+    ".automated_script.sh",
+    "splash.png",
+    ".zlogin",
+    ".bash_profile",
+    ".bashrc",
+    ".profile",
+    "profile.d",
+    "ssh",
+    "sshd_config.d",
+    "cloud",
+    "bin",
+)
+ARTWORK = re.compile(r"\.(png|jpe?g|gif|bmp|svg|ico|xpm|tga)$", re.IGNORECASE)
+STAGE2_TOP = (
+    "roles",
+    "playbooks",
+    "themes",
+    "collections",
+    "inventory",
+    "group_vars",
+    "host_vars",
+)
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+FPR = re.compile(r"^[0-9A-F]{40}$")
+PKGNAME = re.compile(r"^[a-z0-9@_+][a-z0-9@._+-]*$")
+PKGVER = re.compile(r"^(?:[0-9]+:)?[A-Za-z0-9._+~]+-[0-9]+(?:\.[0-9]+)?$")
+ARCH_WORD = re.compile(r"(?<![a-z])arch", re.IGNORECASE)
+DECISIONS = {"admitted", "pending", "excluded"}
+MANIFEST_HEADER = ["name", "version", "arch", "filename", "sha256"]
+ARCHIVE = "https://archive.archlinux.org/repos/{date}/$repo/os/$arch"
+
+
+class Refusal(Exception):
+    """An input or state this tool refuses; nothing further is done."""
+
+
+class UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a repeated mapping key."""
+
+
+def _unique_mapping(
+    loader: UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
+    seen: set[Any] = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"repeated key {key!r}", key_node.start_mark
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping
+)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def regular_path(path: Path) -> None:
+    for component in (path.absolute(), *path.absolute().parents):
+        if component.is_symlink():
+            raise Refusal(f"{path}: redirected input")
+    if not path.is_file():
+        raise Refusal(f"{path}: missing or not a regular file")
+
+
+def read_regular(path: Path) -> str:
+    """Read a regular, non-redirected file; anything else is a refusal."""
+    regular_path(path)
+    return path.read_text(encoding="utf-8")
+
+
+def load_yaml(path: Path) -> Any:
+    try:
+        return yaml.load(read_regular(path), Loader=UniqueKeyLoader)
+    except yaml.YAMLError as error:
+        raise Refusal(f"{path}: not valid YAML: {error}") from error
+
+
+def exact_keys(where: str, value: Any, keys: set[str], errors: list[str]) -> bool:
+    if not isinstance(value, dict):
+        errors.append(f"{where}: must be a mapping")
+        return False
+    if set(value) != keys:
+        errors.append(
+            f"{where}: keys must be exactly {sorted(keys)}, found {sorted(map(str, value))}"
+        )
+        return False
+    return True
+
+
+# ---- build inputs --------------------------------------------------------------
+
+
+def check_inputs(inputs: Any, errors: list[str]) -> None:
+    top = {
+        "schema_version",
+        "mode",
+        "archiso",
+        "archlinux_keyring",
+        "archive_date",
+        "stage2",
+        "release_key_fingerprint",
+    }
+    if not exact_keys("build-inputs.yml", inputs, top, errors):
+        return
+    if inputs["schema_version"] != 1:
+        errors.append("build-inputs.yml: schema_version must be 1")
+    if inputs["mode"] not in MODE_TEXT:
+        errors.append(f"build-inputs.yml: mode must be one of {sorted(MODE_TEXT)}")
+    if exact_keys(
+        "build-inputs.yml archiso",
+        inputs["archiso"],
+        {"package_version", "tag", "commit"},
+        errors,
+    ):
+        archiso = inputs["archiso"]
+        if not isinstance(archiso["package_version"], str) or not PKGVER.match(
+            archiso["package_version"]
+        ):
+            errors.append(
+                "build-inputs.yml: archiso.package_version must be one exact pkgver-pkgrel string"
+            )
+        if not isinstance(archiso["commit"], str) or not HEX40.match(archiso["commit"]):
+            errors.append(
+                "build-inputs.yml: archiso.commit must be 40 lowercase hexadecimal characters"
+            )
+        if not isinstance(archiso["tag"], str) or not archiso["tag"]:
+            errors.append("build-inputs.yml: archiso.tag must be a string")
+    keyring = inputs["archlinux_keyring"]
+    if not isinstance(keyring, str) or not PKGVER.match(keyring):
+        errors.append(
+            "build-inputs.yml: archlinux_keyring must be one exact pkgver-pkgrel string"
+        )
+    date = inputs["archive_date"]
+    if not isinstance(date, str) or not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        errors.append(
+            "build-inputs.yml: archive_date must be a quoted YYYY-MM-DD string"
+        )
+    else:
+        try:
+            datetime.date.fromisoformat(date)
+        except ValueError:
+            errors.append(
+                f"build-inputs.yml: archive_date {date} is not a calendar date"
+            )
+    if exact_keys(
+        "build-inputs.yml stage2", inputs["stage2"], {"repository", "commit"}, errors
+    ):
+        stage2 = inputs["stage2"]
+        if not isinstance(stage2["commit"], str) or not HEX40.match(stage2["commit"]):
+            errors.append(
+                "build-inputs.yml: stage2.commit (S) must be 40 lowercase hexadecimal characters"
+            )
+        if not isinstance(stage2["repository"], str) or not stage2[
+            "repository"
+        ].startswith("https://"):
+            errors.append("build-inputs.yml: stage2.repository must be an https URL")
+    fingerprint = inputs["release_key_fingerprint"]
+    if fingerprint is not None and (
+        not isinstance(fingerprint, str) or not FPR.match(fingerprint)
+    ):
+        errors.append(
+            "build-inputs.yml: release_key_fingerprint must be null or 40 uppercase hexadecimal characters"
+        )
+
+
+# ---- profile files --------------------------------------------------------------
+
+
+def parse_profiledef(text: str, errors: list[str]) -> dict[str, Any]:
+    """Read literal assignments only; any expansion or command is refused."""
+    values: dict[str, Any] = {}
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
+        if not line or line.startswith("#"):
+            continue
+        if any(mark in line for mark in ("$", "`", ";", "&", "|", ">", "<")):
+            errors.append(f"profiledef.sh: refused non-literal line: {line}")
+            continue
+        match = re.match(r"^([a-z_]+)=(.*)$", line)
+        if not match:
+            errors.append(f"profiledef.sh: refused line: {line}")
+            continue
+        name, rest = match.groups()
+        if name in values:
+            errors.append(f"profiledef.sh: {name} assigned twice")
+        if name not in ALLOWED_PROFILEDEF:
+            errors.append(f"profiledef.sh: unexpected variable {name}")
+        if rest.startswith("("):
+            body = rest[1:]
+            while not body.rstrip().endswith(")"):
+                if index >= len(lines):
+                    errors.append(f"profiledef.sh: unterminated array {name}")
+                    return values
+                nxt = lines[index]
+                index += 1
+                if any(mark in nxt for mark in ("$", "`", ";", "&", "|", ">", "<")):
+                    errors.append(
+                        f"profiledef.sh: refused non-literal line: {nxt.strip()}"
+                    )
+                body += " " + nxt.strip()
+            body = body.rstrip()[:-1]
+            if name == "file_permissions":
+                perms: dict[str, str] = {}
+                for item in re.findall(r'\["([^"]+)"\]="([^"]*)"', body):
+                    perms[item[0]] = item[1]
+                if re.sub(r'\["[^"]+"\]="[^"]*"', "", body).strip():
+                    errors.append(
+                        "profiledef.sh: file_permissions holds something other than literal entries"
+                    )
+                values[name] = perms
+            else:
+                try:
+                    values[name] = shlex.split(body)
+                except ValueError as error:
+                    errors.append(f"profiledef.sh: {name}: {error}")
+        else:
+            try:
+                parts = shlex.split(rest)
+            except ValueError as error:
+                errors.append(f"profiledef.sh: {name}: {error}")
+                continue
+            if len(parts) != 1:
+                errors.append(f"profiledef.sh: {name} must be one literal word")
+                continue
+            values[name] = parts[0]
+    return values
+
+
+def naming_violation(text: str) -> bool:
+    return bool(ARCH_WORD.search(text.replace(EMBEDDED_PATH, "")))
+
+
+def parse_pacman_conf(
+    text: str, errors: list[str]
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        header = re.match(r"^\[([^\]]+)\]$", line)
+        if header:
+            sections.append((header.group(1), []))
+            continue
+        if not sections:
+            errors.append(f"pacman.conf: directive outside a section: {line}")
+            continue
+        key, _, value = line.partition("=")
+        sections[-1][1].append((key.strip(), value.strip()))
+    return sections
+
+
+def check_pacman_conf(text: str, archive_date: str, errors: list[str]) -> None:
+    sections = parse_pacman_conf(text, errors)
+    names = [name for name, _ in sections]
+    if names != ["options", "core", "extra"]:
+        errors.append(
+            f"pacman.conf: sections must be exactly [options], [core], [extra]; found {names}"
+        )
+    expected = (
+        ARCHIVE.format(date=archive_date.replace("-", "/")) if archive_date else None
+    )
+    for name, directives in sections:
+        keys = [key for key, _ in directives]
+        if name == "options":
+            allowed = {"HoldPkg", "Architecture", "ParallelDownloads", "SigLevel"}
+            for key in keys:
+                if key not in allowed:
+                    errors.append(f"pacman.conf: [options] {key} is not allowed")
+            levels = [value for key, value in directives if key == "SigLevel"]
+            if len(levels) != 1 or levels[0].split() != [
+                "Required",
+                "DatabaseOptional",
+            ]:
+                errors.append(
+                    "pacman.conf: [options] must set SigLevel = Required DatabaseOptional exactly once"
+                )
+            for key, value in directives:
+                if key == "Architecture" and value != "auto":
+                    errors.append("pacman.conf: Architecture must be auto")
+            continue
+        servers = [value for key, value in directives if key == "Server"]
+        for key in keys:
+            if key != "Server":
+                errors.append(
+                    f"pacman.conf: [{name}] {key} is not allowed (SigLevel, Include and the rest stay in [options] or out)"
+                )
+        if not servers:
+            errors.append(f"pacman.conf: [{name}] has no Server")
+        for server in servers:
+            if server != expected:
+                errors.append(
+                    f"pacman.conf: [{name}] Server {server} is not the archive at {archive_date}"
+                )
+
+
+def check_entry(path: Path, errors: list[str]) -> None:
+    text = read_regular(path)
+    fields: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition(" ")
+        if key in fields:
+            errors.append(f"{path.name}: {key} appears twice")
+        fields[key] = value.strip()
+    if set(fields) != {"title", "sort-key", "linux", "initrd", "options"}:
+        errors.append(
+            f"{path.name}: keys must be title, sort-key, linux, initrd, options"
+        )
+        return
+    title = fields["title"]
+    if title.count("{{MODE}}") != 1 or "{{" in title.replace("{{MODE}}", ""):
+        errors.append(f"{path.name}: the title must carry the build mode marker once")
+    if naming_violation(title):
+        errors.append(f"{path.name}: the boot entry title names Arch")
+    if fields["options"].split() != ENTRY_OPTIONS:
+        errors.append(
+            f"{path.name}: kernel options must be exactly {' '.join(ENTRY_OPTIONS)}"
+        )
+
+
+def check_motd(text: str, errors: list[str]) -> None:
+    for token in ("{{MODE}}", "{{C}}", "{{S}}"):
+        if text.count(token) != 1:
+            errors.append(f"motd: must carry {token} exactly once")
+    if naming_violation(text):
+        errors.append("motd: names Arch outside the embedded repository path")
+
+
+def profile_entries(profile: Path, errors: list[str]) -> dict[str, os.stat_result]:
+    entries: dict[str, os.stat_result] = {}
+    for dirpath, dirnames, filenames in os.walk(profile, followlinks=False):
+        for name in sorted(dirnames + filenames):
+            full = Path(dirpath) / name
+            rel = full.relative_to(profile).as_posix()
+            info = full.lstat()
+            if Path(dirpath, name).is_dir() and not full.is_symlink():
+                continue
+            if not (os.path.isfile(full) or full.is_symlink()) or (
+                not full.is_symlink() and not full.is_file()
+            ):
+                errors.append(f"profile: {rel} is neither a regular file nor a symlink")
+                continue
+            entries[rel] = info
+    return entries
+
+
+def check_origin(
+    profile: Path, entries: dict[str, os.stat_result], errors: list[str]
+) -> None:
+    text = read_regular(profile / "ORIGIN.tsv")
+    rows = [line.split("\t") for line in text.splitlines()]
+    if not rows or rows[0] != ORIGIN_HEADER:
+        errors.append(f"ORIGIN.tsv: header must be {' '.join(ORIGIN_HEADER)}")
+        return
+    seen: set[str] = set()
+    for number, row in enumerate(rows[1:], start=2):
+        if len(row) != len(ORIGIN_HEADER):
+            errors.append(f"ORIGIN.tsv line {number}: {len(row)} fields")
+            continue
+        path, kind, target, origin, upstream, relation = row
+        if path in seen:
+            errors.append(f"ORIGIN.tsv: {path} listed twice")
+        seen.add(path)
+        if path not in entries:
+            errors.append(f"ORIGIN.tsv: {path} is listed but is not a profile file")
+            continue
+        full = profile / path
+        is_link = full.is_symlink()
+        if kind not in ("file", "symlink") or (kind == "symlink") != is_link:
+            errors.append(
+                f"ORIGIN.tsv: {path} declared {kind}, found {'symlink' if is_link else 'file'}"
+            )
+            continue
+        if relation not in ("copied", "adapted", "written"):
+            errors.append(f"ORIGIN.tsv: {path} relation {relation} is unknown")
+        if is_link:
+            actual = os.readlink(full)
+            if target != actual:
+                errors.append(
+                    f"ORIGIN.tsv: {path} target {target} differs from the symlink ({actual})"
+                )
+            if not path.startswith("airootfs/"):
+                errors.append(f"profile: symlink {path} outside airootfs")
+            if actual.startswith("/"):
+                if ".." in Path(actual).parts:
+                    errors.append(f"profile: symlink {path} escapes with ..")
+            else:
+                resolved = os.path.normpath(os.path.join(os.path.dirname(path), actual))
+                if not resolved.startswith("airootfs/"):
+                    errors.append(
+                        f"profile: symlink {path} escapes the live root ({actual})"
+                    )
+            if upstream != "-":
+                errors.append(f"ORIGIN.tsv: symlink {path} carries no upstream digest")
+            continue
+        if target != "-":
+            errors.append(f"ORIGIN.tsv: file {path} must have target -")
+        if relation == "written":
+            if origin != "written here" or upstream != "-":
+                errors.append(
+                    f"ORIGIN.tsv: written file {path} must say 'written here' and -"
+                )
+        elif not HEX64.match(upstream) or not origin.startswith("archiso v91 "):
+            errors.append(
+                f"ORIGIN.tsv: {path} needs its archiso v91 origin and upstream SHA-256"
+            )
+        elif relation == "copied" and sha256_file(full) != upstream:
+            errors.append(
+                f"ORIGIN.tsv: copied file {path} differs from its upstream digest"
+            )
+    for path in sorted(set(entries) - seen):
+        errors.append(f"ORIGIN.tsv: profile file {path} has no origin row")
+
+
+def check_overlays(
+    profile: Path, entries: dict[str, os.stat_result], errors: list[str]
+) -> None:
+    for rel in entries:
+        parts = rel.split("/")
+        for part in parts:
+            if part in FORBIDDEN_PARTS:
+                errors.append(
+                    f"profile: {rel} is a dropped or forbidden overlay ({part})"
+                )
+                break
+        if ARTWORK.search(rel):
+            errors.append(f"profile: {rel} is artwork; the profile carries none")
+        if rel.startswith("airootfs/etc/systemd/system/"):
+            unit = rel[len("airootfs/etc/systemd/system/") :]
+            if unit not in ENABLED_UNITS and unit not in UNIT_FILES:
+                errors.append(
+                    f"profile: unit {unit} is not one the ADR keeps (nothing runs by itself)"
+                )
+        elif (
+            rel.startswith("airootfs/")
+            and "systemd" in parts
+            and not rel.startswith("airootfs/etc/systemd/")
+        ):
+            errors.append(
+                f"profile: {rel} places systemd configuration outside /etc/systemd"
+            )
+    present = {
+        rel[len("airootfs/etc/systemd/system/") :]
+        for rel in entries
+        if rel.startswith("airootfs/etc/systemd/system/") and ".wants/" in rel
+    }
+    if present != ENABLED_UNITS:
+        errors.append(f"profile: enabled units must be exactly {sorted(ENABLED_UNITS)}")
+    autologin = (
+        profile / "airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+    )
+    if autologin.exists():
+        execs = [
+            line.split("=", 1)[1]
+            for line in read_regular(autologin).splitlines()
+            if line.startswith("ExecStart=")
+        ]
+        if execs != ["", " ".join(AUTOLOGIN_EXEC)]:
+            errors.append(
+                "autologin.conf: the tty1 autologin must open root's login shell and nothing else"
+            )
+    hooks = profile / "airootfs/etc/mkinitcpio.conf.d/archiso.conf"
+    if hooks.exists():
+        found = [
+            line
+            for line in read_regular(hooks).splitlines()
+            if line.startswith("HOOKS=")
+        ]
+        listed = shlex.split(found[0][len("HOOKS=(") : -1]) if len(found) == 1 else []
+        if listed != LIVE_HOOKS:
+            errors.append(f"mkinitcpio: HOOKS must be exactly {' '.join(LIVE_HOOKS)}")
+
+
+def read_requests(text: str, errors: list[str]) -> list[str]:
+    names: list[str] = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if not PKGNAME.match(line):
+            errors.append(f"packages.x86_64: {line!r} is not one package name")
+            continue
+        if line in names:
+            errors.append(f"packages.x86_64: {line} listed twice")
+        names.append(line)
+    return names
+
+
+def excluded(name: str) -> bool:
+    return (
+        name in EXCLUDED_NAMES
+        or "firmware" in name
+        or name.endswith("-ucode")
+        or name.startswith(("openssh", "cloud-"))
+    )
+
+
+def load_admission(path: Path, errors: list[str]) -> dict[str, dict[str, str]]:
+    data = load_yaml(path)
+    entries: dict[str, dict[str, str]] = {}
+    if not exact_keys("admission.yml", data, {"schema_version", "packages"}, errors):
+        return entries
+    if data["schema_version"] != 1:
+        errors.append("admission.yml: schema_version must be 1")
+    if not isinstance(data["packages"], list):
+        errors.append("admission.yml: packages must be a list")
+        return entries
+    for number, entry in enumerate(data["packages"], start=1):
+        where = f"admission.yml entry {number}"
+        if not exact_keys(
+            where, entry, {"name", "version", "decision", "audit"}, errors
+        ):
+            continue
+        name, version = entry["name"], entry["version"]
+        if not isinstance(name, str) or not PKGNAME.match(name):
+            errors.append(f"{where}: name must be one package name")
+            continue
+        if not isinstance(version, str) or not PKGVER.match(version):
+            errors.append(f"{where} ({name}): version must be one exact pkgver-pkgrel")
+        if entry["decision"] not in DECISIONS:
+            errors.append(
+                f"{where} ({name}): decision must be one of {sorted(DECISIONS)}"
+            )
+        if not isinstance(entry["audit"], str) or not entry["audit"].strip():
+            errors.append(
+                f"{where} ({name}): audit must name the audit entry it rests on"
+            )
+        if name in entries:
+            errors.append(f"admission.yml: {name} has two entries")
+        if excluded(name):
+            errors.append(f"admission.yml: {name} is excluded from the live payload")
+        entries[name] = {key: str(value) for key, value in entry.items()}
+    return entries
+
+
+def tracked_files(root: Path) -> list[str]:
+    if (root / ".git").exists():
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=False
+        )
+        if result.returncode != 0:
+            raise Refusal(f"git ls-files failed in {root}")
+        return [item for item in result.stdout.decode().split("\0") if item]
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in (".git",)]
+        found += [
+            (Path(dirpath) / name).relative_to(root).as_posix() for name in filenames
+        ]
+    return found
+
+
+def check_profile(root: Path) -> list[str]:
+    errors: list[str] = []
+    iso = root / "iso"
+    profile = iso / "profile"
+    if not profile.is_dir() or profile.is_symlink():
+        return [f"{profile}: missing or redirected"]
+    inputs = load_yaml(iso / "build-inputs.yml")
+    check_inputs(inputs, errors)
+    archive_date = inputs.get("archive_date") if isinstance(inputs, dict) else None
+    entries = profile_entries(profile, errors)
+    if set(entries) != PROFILE_FILES:
+        errors.append(
+            "profile: unexpected or missing file paths: "
+            + str(sorted(set(entries) ^ PROFILE_FILES))
+        )
+    for rel, target in PROFILE_LINKS.items():
+        path = profile / rel
+        if not path.is_symlink() or os.readlink(path) != target:
+            errors.append(f"profile: {rel} must link to {target}")
+    check_origin(profile, entries, errors)
+    check_overlays(profile, entries, errors)
+    definition = parse_profiledef(read_regular(profile / "profiledef.sh"), errors)
+    if definition.get("bootmodes") != ["uefi.systemd-boot"]:
+        errors.append("profiledef.sh: bootmodes must be exactly ('uefi.systemd-boot')")
+    if definition.get("arch") != "x86_64":
+        errors.append("profiledef.sh: arch must be x86_64")
+    if definition.get("pacman_conf") != "pacman.conf":
+        errors.append("profiledef.sh: pacman_conf must be the profile's pacman.conf")
+    if definition.get("airootfs_image_type") != "squashfs":
+        errors.append("profiledef.sh: airootfs_image_type must be squashfs")
+    options = definition.get("airootfs_image_tool_options", [])
+    if options[:2] != ["-comp", "xz"]:
+        errors.append("profiledef.sh: the squashfs image must use xz")
+    for field in NAMING_FIELDS:
+        value = definition.get(field)
+        if not isinstance(value, str) or not value:
+            errors.append(f"profiledef.sh: {field} must be set")
+        elif naming_violation(value):
+            errors.append(f"profiledef.sh: {field} names Arch ({value})")
+    for target in definition.get("file_permissions", {}):
+        if (
+            not (profile / "airootfs" / target.lstrip("/")).exists()
+            and target != "/root"
+        ):
+            errors.append(
+                f"profiledef.sh: file_permissions names {target}, which the profile does not carry"
+            )
+    check_pacman_conf(
+        read_regular(profile / "pacman.conf"),
+        archive_date if isinstance(archive_date, str) else "",
+        errors,
+    )
+    entries_dir = profile / "efiboot/loader/entries"
+    listed = (
+        sorted(p.name for p in entries_dir.iterdir()) if entries_dir.is_dir() else []
+    )
+    if listed != ["01-live.conf"]:
+        errors.append(f"efiboot: exactly one boot entry, 01-live.conf, found {listed}")
+    else:
+        check_entry(entries_dir / "01-live.conf", errors)
+    loader = [
+        line.split()
+        for line in read_regular(profile / "efiboot/loader/loader.conf").splitlines()
+        if line.strip()
+    ]
+    if ["default", "01-live.conf"] not in loader:
+        errors.append("loader.conf: default must be 01-live.conf")
+    check_motd(read_regular(profile / "airootfs/etc/motd"), errors)
+    license_path = profile / "LICENSE"
+    if sha256_file(license_path) != PROFILE_LICENSE_SHA256:
+        errors.append("iso/profile/LICENSE: not the GPL-3.0 text of archiso v91")
+    else:
+        heading = [
+            line.strip()
+            for line in read_regular(license_path).splitlines()
+            if line.strip()
+        ][:2]
+        if heading != ["GNU GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007"]:
+            errors.append("iso/profile/LICENSE: not the GPL-3.0 text")
+    requests = read_requests(read_regular(profile / "packages.x86_64"), errors)
+    if sorted(requests) != sorted(DIRECT_REQUESTS):
+        errors.append(
+            f"packages.x86_64: the direct requests must be exactly the ADR payload {list(DIRECT_REQUESTS)}"
+        )
+    for name in requests:
+        if excluded(name):
+            errors.append(f"packages.x86_64: {name} is excluded from the live payload")
+    admission = load_admission(iso / "admission.yml", errors)
+    for name in requests:
+        if name not in admission:
+            errors.append(f"admission.yml: direct request {name} has no entry")
+    for rel in tracked_files(root):
+        top = rel.split("/", 1)[0]
+        if top in STAGE2_TOP:
+            errors.append(
+                f"repository: {rel} is stage-2 content; the embedded archive carries none"
+            )
+        if ARTWORK.search(rel):
+            errors.append(
+                f"repository: {rel} is artwork; the embedded archive carries none"
+            )
+    return errors
+
+
+# ---- admission of an installed closure ----------------------------------------------
+
+
+def read_manifest(path: Path) -> list[dict[str, str]]:
+    lines = read_regular(path).splitlines()
+    if not lines or lines[0].split("\t") != MANIFEST_HEADER:
+        raise Refusal(f"{path}: header must be {' '.join(MANIFEST_HEADER)}")
+    rows: list[dict[str, str]] = []
+    names: set[str] = set()
+    for number, line in enumerate(lines[1:], start=2):
+        fields = line.split("\t")
+        if len(fields) != len(MANIFEST_HEADER):
+            raise Refusal(f"{path} line {number}: {len(fields)} fields")
+        row = dict(zip(MANIFEST_HEADER, fields))
+        if (
+            not PKGNAME.match(row["name"])
+            or not PKGVER.match(row["version"])
+            or not HEX64.match(row["sha256"])
+        ):
+            raise Refusal(f"{path} line {number}: malformed row")
+        if row["arch"] not in ("any", "x86_64") or not re.fullmatch(
+            r"[A-Za-z0-9@_+.:~-]+\.pkg\.tar\.(?:zst|xz|gz)", row["filename"]
+        ):
+            raise Refusal(f"{path} line {number}: invalid package file or architecture")
+        if row["name"] in names:
+            raise Refusal(f"{path}: {row['name']} appears twice")
+        names.add(row["name"])
+        rows.append(row)
+    if not rows:
+        raise Refusal(f"{path}: no package rows")
+    return rows
+
+
+def judge_admission(
+    rows: list[dict[str, str]], admission: dict[str, dict[str, str]]
+) -> list[dict[str, str]]:
+    unadmitted = []
+    for row in rows:
+        entry = admission.get(row["name"])
+        if entry is None:
+            reason = "no admission entry"
+        elif entry["version"] != row["version"]:
+            reason = f"admission entry is for version {entry['version']}"
+        elif entry["decision"] != "admitted":
+            reason = f"decision is {entry['decision']}"
+        else:
+            continue
+        unadmitted.append(
+            {"name": row["name"], "version": row["version"], "reason": reason}
+        )
+    return unadmitted
+
+
+def check_admission(
+    mode: str, manifest: Path, admission_path: Path
+) -> tuple[bool, dict[str, Any]]:
+    errors: list[str] = []
+    admission = load_admission(admission_path, errors)
+    if errors:
+        raise Refusal("; ".join(errors))
+    rows = read_manifest(manifest)
+    for row in rows:
+        if excluded(row["name"]):
+            raise Refusal(
+                f"{manifest}: {row['name']} is excluded from the live payload"
+            )
+    unadmitted = judge_admission(rows, admission)
+    report = {"mode": mode, "packages": len(rows), "unadmitted": unadmitted}
+    return (mode == "development" or not unadmitted), report
+
+
+# ---- the real pacman signature policy ---------------------------------------------------
+
+
+def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, text=True, capture_output=True, check=False, **kwargs)
+
+
+def must(argv: list[str], **kwargs: Any) -> str:
+    result = run(argv, **kwargs)
+    if result.returncode != 0:
+        raise Refusal(
+            f"{' '.join(argv)} failed ({result.returncode}): {result.stderr.strip()[-400:]}"
+        )
+    return result.stdout
+
+
+def fixture_package(work: Path, name: str) -> Path:
+    tree = work / f"tree-{name}"
+    (tree / "usr/share/hyperlab-fixture").mkdir(parents=True)
+    (tree / "usr/share/hyperlab-fixture" / name).write_text(f"{name}\n")
+    (tree / ".PKGINFO").write_text(
+        f"pkgname = {name}\npkgbase = {name}\npkgver = 1-1\npkgdesc = signature policy fixture\n"
+        "url = https://invalid.example\nbuilddate = 0\npackager = Fixture <fixture@invalid.example>\n"
+        "size = 8\narch = any\nlicense = MIT\n"
+    )
+    package = work / "repo" / f"{name}-1-1-any.pkg.tar.zst"
+    package.parent.mkdir(exist_ok=True)
+    must(["bsdtar", "--zstd", "-cf", str(package), "-C", str(tree), ".PKGINFO", "usr"])
+    return package
+
+
+def gen_key(home: Path, uid: str) -> str:
+    home.mkdir(mode=0o700)
+    env = dict(os.environ, GNUPGHOME=str(home))
+    must(
+        [
+            "gpg",
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--quick-gen-key",
+            uid,
+            "ed25519",
+            "sign",
+            "never",
+        ],
+        env=env,
+    )
+    out = must(["gpg", "--batch", "--with-colons", "--list-secret-keys"], env=env)
+    return next(
+        line.split(":")[9] for line in out.splitlines() if line.startswith("fpr:")
+    )
+
+
+def check_signature_policy(root: Path, work: Path) -> dict[str, Any]:
+    if os.geteuid() != 0:
+        raise Refusal(
+            "the signature policy check runs pacman as root, inside a disposable builder only"
+        )
+    in_vm(require=True)
+    errors: list[str] = []
+    sections = parse_pacman_conf(read_regular(root / "iso/profile/pacman.conf"), errors)
+    levels = [
+        value
+        for name, directives in sections
+        if name == "options"
+        for key, value in directives
+        if key == "SigLevel"
+    ]
+    if errors or len(levels) != 1:
+        raise Refusal("pacman.conf: cannot read the profile's SigLevel")
+    if work.exists() and any(work.iterdir()):
+        raise Refusal(f"{work}: not empty")
+    work.mkdir(parents=True, exist_ok=True)
+    signer = gen_key(work / "signer", "Fixture Packager <signer@invalid.example>")
+    foreign = gen_key(work / "foreign", "Foreign Packager <foreign@invalid.example>")
+    for name, home in (
+        ("fixture-signed", "signer"),
+        ("fixture-unsigned", None),
+        ("fixture-foreign", "foreign"),
+    ):
+        package = fixture_package(work, name)
+        if home:
+            must(
+                [
+                    "gpg",
+                    "--batch",
+                    "--pinentry-mode",
+                    "loopback",
+                    "--passphrase",
+                    "",
+                    "--detach-sign",
+                    "--no-armor",
+                    "--output",
+                    f"{package}.sig",
+                    str(package),
+                ],
+                env=dict(os.environ, GNUPGHOME=str(work / home)),
+            )
+    packages = sorted(str(p) for p in (work / "repo").glob("*.pkg.tar.zst"))
+    must(["repo-add", "-q", str(work / "repo/fixture.db.tar.gz"), *packages])
+    if list((work / "repo").glob("fixture.db*.sig")):
+        raise Refusal("the fixture database must be unsigned")
+    keyring = work / "keyring"
+    must(["pacman-key", "--gpgdir", str(keyring), "--init"])
+    with (keyring / "gpg.conf").open("a") as conf:
+        conf.write("no-auto-key-retrieve\n")
+    exported = must(
+        ["gpg", "--batch", "--armor", "--export", signer],
+        env=dict(os.environ, GNUPGHOME=str(work / "signer")),
+    )
+    (work / "signer.asc").write_text(exported)
+    must(["pacman-key", "--gpgdir", str(keyring), "--add", str(work / "signer.asc")])
+    must(["pacman-key", "--gpgdir", str(keyring), "--lsign-key", signer])
+    conf = work / "pacman.conf"
+    conf.write_text(
+        f"[options]\nArchitecture = auto\nSigLevel = {levels[0]}\n\n"
+        f"[fixture]\nServer = file://{work / 'repo'}\n"
+    )
+    results: dict[str, Any] = {
+        "siglevel": levels[0],
+        "signer": signer,
+        "foreign": foreign,
+        "cases": {},
+    }
+    expected = {
+        "fixture-signed": True,
+        "fixture-unsigned": False,
+        "fixture-foreign": False,
+    }
+    for name, should_install in expected.items():
+        target = work / f"root-{name}"
+        (target / "var/lib/pacman").mkdir(parents=True)
+        (work / f"cache-{name}").mkdir()
+        base = [
+            "pacman",
+            "--config",
+            str(conf),
+            "--root",
+            str(target),
+            "--dbpath",
+            str(target / "var/lib/pacman"),
+            "--gpgdir",
+            str(keyring),
+            "--cachedir",
+            str(work / f"cache-{name}"),
+            "--noconfirm",
+        ]
+        must(base + ["-Sy"])
+        result = run(base + ["-S", name], stdin=subprocess.DEVNULL)
+        installed = (target / "usr/share/hyperlab-fixture" / name).is_file()
+        results["cases"][name] = {
+            "exit": result.returncode,
+            "installed": installed,
+            "expected_installed": should_install,
+            "stderr": result.stderr.strip().splitlines()[-3:],
+        }
+        if installed != should_install or (result.returncode == 0) != should_install:
+            results["failed"] = True
+    results["pass"] = not results.get("failed", False)
+    return results
+
+
+# ---- the build ----------------------------------------------------------------------------
+
+
+def in_vm(require: bool) -> str:
+    result = run(["systemd-detect-virt", "--vm"])
+    kind = result.stdout.strip()
+    if require and (result.returncode != 0 or kind in ("", "none")):
+        raise Refusal(
+            "not inside a virtual machine: a build never runs on the operator's host"
+        )
+    return kind
+
+
+def git(root: Path, *args: str) -> str:
+    return must(["git", "-C", str(root), *args]).strip()
+
+
+def clean_commit(root: Path) -> str:
+    status = run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignored=no",
+        ]
+    )
+    if status.returncode != 0:
+        raise Refusal(f"{root} is not a Git work tree")
+    if status.stdout.strip():
+        raise Refusal(
+            "the work tree is dirty or has untracked files; a build uses a clean commit only:\n"
+            + status.stdout.rstrip()
+        )
+    commit = git(root, "rev-parse", "--verify", "HEAD^{commit}")
+    if not HEX40.match(commit):
+        raise Refusal(f"HEAD is not a full commit id: {commit}")
+    return commit
+
+
+def installed_version(name: str) -> str:
+    out = must(["pacman", "-Q", name]).split()
+    return out[1]
+
+
+def archive_tree(root: Path, commit: str, dest: Path) -> None:
+    dest.mkdir(parents=True)
+    archive = subprocess.run(
+        ["git", "-C", str(root), "archive", "--format=tar", commit],
+        capture_output=True,
+        check=False,
+    )
+    if archive.returncode != 0:
+        raise Refusal(f"git archive {commit} failed")
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+        tar.extractall(dest, filter="tar")
+
+
+def read_local_db(airootfs: Path) -> list[dict[str, Any]]:
+    local = airootfs / "var/lib/pacman/local"
+    packages = []
+    for entry in sorted(local.iterdir()):
+        if not entry.is_dir():
+            continue
+        fields: dict[str, list[str]] = {}
+        key = ""
+        for line in read_regular(entry / "desc").splitlines():
+            if line.startswith("%") and line.endswith("%"):
+                key = line.strip("%")
+                fields[key] = []
+            elif line:
+                fields[key].append(line)
+        files: list[str] = []
+        listing = read_regular(entry / "files").splitlines()
+        if "%FILES%" in listing:
+            for line in listing[listing.index("%FILES%") + 1 :]:
+                if not line or line.startswith("%"):
+                    break
+                files.append(line)
+        packages.append(
+            {
+                "name": fields["NAME"][0],
+                "version": fields["VERSION"][0],
+                "arch": fields["ARCH"][0],
+                "licenses": fields.get("LICENSE", []),
+                "files": files,
+            }
+        )
+    return packages
+
+
+NOTICE_NAME = re.compile(
+    r"^(copying|copyright|licen[cs]e|notice|unlicense|patents|authors)([._-].*)?$",
+    re.IGNORECASE,
+)
+
+
+def notice_paths(package: dict[str, Any]) -> list[str]:
+    found = []
+    for path in package["files"]:
+        if path.endswith("/") or Path(path).suffix.lower() in (
+            ".py",
+            ".pyc",
+            ".pyo",
+            ".yml",
+            ".yaml",
+            ".so",
+            ".sh",
+        ):
+            continue
+        if path.startswith("usr/share/licenses/") or NOTICE_NAME.match(
+            path.rsplit("/", 1)[-1]
+        ):
+            found.append(path)
+    return found
+
+
+def deterministic_tar(dest: Path, members: list[tuple[str, Path]], epoch: int) -> None:
+    with tarfile.open(dest, "w", format=tarfile.GNU_FORMAT) as tar:
+        for name, source in sorted(members):
+            data = source.read_bytes()
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mtime = epoch
+            info.mode = 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            tar.addfile(info, io.BytesIO(data))
+
+
+def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
+    os.umask(0o022)
+    os.environ.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
+    os.environ.pop("LANG", None)
+    commit = clean_commit(root)
+    errors = check_profile(root)
+    if errors:
+        raise Refusal("static validation failed:\n" + "\n".join(errors))
+    inputs = load_yaml(root / "iso/build-inputs.yml")
+    mode = inputs["mode"]
+    if mode == "release-candidate":
+        raise Refusal(
+            "release-candidate refused: no frozen release-campaign pair (C, S) is recorded; "
+            "S in build-inputs.yml is not a release freeze"
+        )
+    for path in (output, work):
+        resolved = path.resolve()
+        if resolved == root.resolve() or root.resolve() in resolved.parents:
+            raise Refusal(f"{path} is inside the repository")
+        if path.exists() and any(path.iterdir()):
+            raise Refusal(
+                f"{path} is not empty: every build starts from an empty directory"
+            )
+    if os.geteuid() != 0:
+        raise Refusal(
+            "mkarchiso needs root: run iso/build as root inside a disposable builder"
+        )
+    vm_kind = in_vm(require=True)
+    if pwd.getpwnam(verify_user).pw_uid == 0:
+        raise Refusal("the verification account must be a normal user")
+    archiso = installed_version("archiso")
+    if archiso != inputs["archiso"]["package_version"]:
+        raise Refusal(
+            f"archiso {archiso} is not the pinned {inputs['archiso']['package_version']}"
+        )
+    keyring = installed_version("archlinux-keyring")
+    if keyring != inputs["archlinux_keyring"]:
+        raise Refusal(
+            f"archlinux-keyring {keyring} is not the pinned {inputs['archlinux_keyring']}"
+        )
+    epoch = int(git(root, "log", "-1", "--format=%ct", commit))
+    os.environ["SOURCE_DATE_EPOCH"] = str(epoch)
+    version = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime(
+        "%Y.%m.%d"
+    )
+    stem = f"hyperlab-installer-{version}-x86_64" + (
+        "-dev-unsigned" if mode == "development" else "-rc"
+    )
+    output.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    logs = output / "logs"
+    logs.mkdir()
+
+    policy = check_signature_policy(root, work / "signature-policy")
+    (logs / "signature-policy.json").write_text(json.dumps(policy, indent=2) + "\n")
+    if not policy["pass"]:
+        raise Refusal(
+            "the builder's pacman does not enforce the profile's signature policy"
+        )
+
+    verify_src = work / "verify-src"
+    must(["git", "clone", "-q", "--no-checkout", str(root), str(verify_src)])
+    must(["git", "-C", str(verify_src), "checkout", "-q", "--detach", commit])
+    must(["chown", "-R", f"{verify_user}:", str(verify_src)])
+    verify = run(
+        [
+            "runuser",
+            "-u",
+            verify_user,
+            "--",
+            "env",
+            "-u",
+            "HYPERLAB_ANSIBLE_REPO",
+            "-u",
+            "CROSS_REPO_STORAGE_REQUIRED",
+            "bash",
+            "verify.sh",
+        ],
+        cwd=verify_src,
+    )
+    (logs / "verify.log").write_text(verify.stdout + verify.stderr)
+    if verify.returncode != 0:
+        raise Refusal(f"bash verify.sh at {commit} failed; see {logs / 'verify.log'}")
+
+    staged = work / "profile-src"
+    archive_tree(root, commit, staged)
+    profile = work / "profile"
+    shutil.copytree(staged / "iso/profile", profile, symlinks=True)
+    with (profile / "profiledef.sh").open("a") as handle:
+        handle.write(f'iso_version="{version}"\n')
+    cache = work / "pkgcache"
+    cache.mkdir()
+    conf = (
+        (profile / "pacman.conf")
+        .read_text()
+        .replace("[options]\n", f"[options]\nCacheDir = {cache}/\n", 1)
+    )
+    (profile / "pacman.conf").write_text(conf)
+    text = MODE_TEXT[mode]
+    s_commit = inputs["stage2"]["commit"]
+    motd = profile / "airootfs/etc/motd"
+    motd.write_text(
+        motd.read_text()
+        .replace("{{MODE}}", text.upper())
+        .replace("{{C}}", commit)
+        .replace("{{S}}", s_commit)
+    )
+    entry = profile / "efiboot/loader/entries/01-live.conf"
+    entry.write_text(entry.read_text().replace("{{MODE}}", text))
+    for rendered in (motd, entry):
+        if naming_violation(rendered.read_text()) or "{{" in rendered.read_text():
+            raise Refusal(f"{rendered}: rendered text is not acceptable")
+    embedded = profile / "airootfs/root/arch-bootstrap"
+    archive_tree(root, commit, embedded)
+    release = {
+        "schema_version": 1,
+        "name": "HyperLab installer image (working name)",
+        "mode": mode,
+        "signed": False,
+        "arch_bootstrap": {"commit": commit, "path": "/root/arch-bootstrap"},
+        "stage2": {"repository": inputs["stage2"]["repository"], "commit": s_commit},
+        "archive_date": inputs["archive_date"],
+        "source_date_epoch": epoch,
+        "archiso": inputs["archiso"]["package_version"],
+    }
+    release_path = profile / "airootfs/usr/local/share/hyperlab-installer/release.json"
+    release_path.parent.mkdir(parents=True)
+    release_path.write_text(json.dumps(release, indent=2, sort_keys=True) + "\n")
+
+    mk_work, mk_out = work / "mkarchiso", work / "iso-out"
+    with (logs / "mkarchiso.log").open("w") as log:
+        status = subprocess.run(
+            ["mkarchiso", "-v", "-w", str(mk_work), "-o", str(mk_out), str(profile)],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+        ).returncode
+    if status != 0:
+        raise Refusal(f"mkarchiso failed ({status}); see {logs / 'mkarchiso.log'}")
+
+    airootfs = mk_work / "x86_64/airootfs"
+    packages = read_local_db(airootfs)
+    queried = sorted(
+        tuple(line.split())
+        for line in must(
+            ["pacman", "-Q", "--dbpath", str(airootfs / "var/lib/pacman")]
+        ).splitlines()
+    )
+    if queried != sorted((p["name"], p["version"]) for p in packages):
+        raise Refusal(
+            "pacman -Q and the local database disagree about the installed closure"
+        )
+    cached: dict[tuple[str, str], Path] = {}
+    for package_file in sorted(cache.glob("*.pkg.tar.*")):
+        if package_file.name.endswith(".sig"):
+            continue
+        identity = tuple(must(["pacman", "-Qp", str(package_file)]).split())
+        if len(identity) != 2 or identity in cached:
+            raise Refusal(f"ambiguous package file identity: {package_file}")
+        cached[identity] = package_file
+    rows = []
+    used: set[str] = set()
+    for package in packages:
+        package_file = cached.get((package["name"], package["version"]))
+        if package_file is None:
+            raise Refusal(
+                f"{package['name']} {package['version']}: no matching package file"
+            )
+        used.add(package_file.name)
+        rows.append(
+            [
+                package["name"],
+                package["version"],
+                package["arch"],
+                package_file.name,
+                sha256_file(package_file),
+            ]
+        )
+    extra = sorted(
+        p.name
+        for p in cache.iterdir()
+        if p.name not in used and not p.name.endswith(".sig")
+    )
+    if extra:
+        raise Refusal(f"package files in the cache that are not installed: {extra}")
+    pkglist = sorted(
+        tuple(line.split())
+        for line in read_regular(
+            mk_work / "iso/hyperlab/pkglist.x86_64.txt"
+        ).splitlines()
+    )
+    if pkglist != sorted((row[0], row[1]) for row in rows):
+        raise Refusal("archiso's pkglist.x86_64.txt differs from the package manifest")
+    for row in rows:
+        if excluded(row[0]):
+            raise Refusal(
+                f"{row[0]} is excluded from the live payload but was installed"
+            )
+    manifest = output / f"{stem}.packages.tsv"
+    manifest.write_text(
+        "\t".join(MANIFEST_HEADER)
+        + "\n"
+        + "".join("\t".join(r) + "\n" for r in sorted(rows))
+    )
+    _, admission_report = check_admission(mode, manifest, root / "iso/admission.yml")
+
+    argon = run(["chroot", str(airootfs), "/usr/bin/cryptsetup", "--help"])
+    if argon.returncode != 0 or not re.search(r"\bargon2id\b", argon.stdout):
+        raise Refusal("the live cryptsetup does not list argon2id")
+
+    members: list[tuple[str, Path]] = []
+    notices: list[dict[str, Any]] = []
+    for package in packages:
+        paths = notice_paths(package)
+        readable = []
+        for path in paths:
+            source = airootfs / path
+            try:
+                regular_path(source)
+            except Refusal:
+                continue
+            if source.is_file():
+                members.append((f"packages/{package['name']}/{path}", source))
+                readable.append(path)
+        notices.append(
+            {
+                "name": package["name"],
+                "version": package["version"],
+                "licenses": package["licenses"],
+                "files": readable,
+                "evidence": "found" if readable else "missing",
+            }
+        )
+    members.append(("arch-bootstrap/LICENSE", staged / "LICENSE"))
+    members.append(
+        ("arch-bootstrap/iso/profile/LICENSE", staged / "iso/profile/LICENSE")
+    )
+    index = work / "notices-index.json"
+    index.write_text(json.dumps(notices, indent=2, sort_keys=True) + "\n")
+    members.append(("index.json", index))
+    notices_tar = output / f"{stem}.notices.tar"
+    deterministic_tar(notices_tar, members, epoch)
+
+    isos = list(mk_out.glob("*.iso"))
+    if len(isos) != 1:
+        raise Refusal(f"mkarchiso wrote {len(isos)} images")
+    image = output / f"{stem}.iso"
+    shutil.move(str(isos[0]), image)
+    keyring_file = Path("/usr/share/pacman/keyrings/archlinux.gpg")
+    record = {
+        "schema_version": 1,
+        "mode": mode,
+        "signed": False,
+        "release_eligible": False,
+        "stem": stem,
+        "arch_bootstrap": {"commit": commit, "source_date_epoch": epoch},
+        "stage2": inputs["stage2"],
+        "inputs": inputs,
+        "environment": {
+            "LC_ALL": "C.UTF-8",
+            "TZ": "UTC",
+            "umask": "022",
+            "SOURCE_DATE_EPOCH": epoch,
+        },
+        "tools": {
+            "archiso": archiso,
+            "archlinux_keyring": {
+                "version": keyring,
+                "archlinux.gpg_sha256": sha256_file(keyring_file),
+                "package_sha256": next(
+                    row[4] for row in rows if row[0] == "archlinux-keyring"
+                ),
+            },
+            "pacman": installed_version("pacman"),
+            "squashfs-tools": installed_version("squashfs-tools"),
+            "libisoburn": installed_version("libisoburn"),
+            "kernel": must(["uname", "-r"]).strip(),
+            "virtualization": vm_kind,
+        },
+        "verify": {
+            "command": "bash verify.sh",
+            "user": verify_user,
+            "exit": verify.returncode,
+            "log_sha256": sha256_file(logs / "verify.log"),
+        },
+        "signature_policy": {
+            "pass": policy["pass"],
+            "siglevel": policy["siglevel"],
+            "cases": {k: v["installed"] for k, v in policy["cases"].items()},
+        },
+        "live_cryptsetup_argon2id": True,
+        "image": {
+            "file": image.name,
+            "sha256": sha256_file(image),
+            "size": image.stat().st_size,
+        },
+        "manifest": {
+            "file": manifest.name,
+            "sha256": sha256_file(manifest),
+            "packages": len(rows),
+        },
+        "notices": {
+            "file": notices_tar.name,
+            "sha256": sha256_file(notices_tar),
+            "missing_evidence": [
+                n["name"] for n in notices if n["evidence"] == "missing"
+            ],
+        },
+        "admission": admission_report,
+        "corresponding_source": "not produced: the source arrangement (U5) is undecided",
+    }
+    build_json = output / f"{stem}.build.json"
+    build_json.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    sums = "".join(
+        f"{sha256_file(output / name)}  {name}\n"
+        for name in sorted(
+            [image.name, manifest.name, build_json.name, notices_tar.name]
+        )
+    )
+    (output / "SHA256SUMS").write_text(sums)
+    print(
+        f"[OK] {mode} build written to {output} ({len(rows)} packages, "
+        f"{len(admission_report['unadmitted'])} not admitted); not signed"
+    )
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="iso/build",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--check-profile", action="store_true")
+    action.add_argument("--check-admission", action="store_true")
+    action.add_argument("--check-signature-policy", action="store_true")
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parent.parent
+    )
+    parser.add_argument("--mode", choices=sorted(MODE_TEXT))
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--admission", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--work", type=Path)
+    parser.add_argument("--verify-user")
+    args = parser.parse_args(argv)
+    try:
+        if args.check_profile:
+            errors = check_profile(args.root)
+            for error in errors:
+                print(f"refused: {error}", file=sys.stderr)
+            if not errors:
+                print("iso profile: static validation passed")
+            return 1 if errors else 0
+        if args.check_admission:
+            if not args.mode or not args.manifest:
+                parser.error("--check-admission needs --mode and --manifest")
+            ok, report = check_admission(
+                args.mode,
+                args.manifest,
+                args.admission or args.root / "iso/admission.yml",
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            if not ok:
+                print(
+                    f"refused: {len(report['unadmitted'])} packages are not admitted at their exact version",
+                    file=sys.stderr,
+                )
+            return 0 if ok else 1
+        if args.check_signature_policy:
+            if not args.work:
+                parser.error("--check-signature-policy needs --work")
+            report = check_signature_policy(args.root, args.work)
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0 if report["pass"] else 1
+        if not args.output or not args.work or not args.verify_user:
+            parser.error("a build needs --output, --work and --verify-user")
+        return build(args.root, args.output, args.work, args.verify_user)
+    except (Refusal, OSError, ValueError, TypeError, KeyError) as refusal:
+        print(f"refused: {refusal}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

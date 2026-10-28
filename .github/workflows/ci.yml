@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install the fixed verification toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck bats cryptsetup-bin python3-yaml
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck bats cryptsetup-bin python3-yaml gnupg
       - name: Run the complete local verification entrypoint
         run: bash verify.sh
   storage-contract:
@@ -25,7 +25,7 @@ jobs:
           ref: main
           path: hyperlab-ansible
       - name: Install the fixed verification toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck bats cryptsetup-bin python3-yaml
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck bats cryptsetup-bin python3-yaml gnupg
       - name: Verify the actual storage producer and consumers
         working-directory: arch-bootstrap
         env:
