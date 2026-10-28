@@ -44,3 +44,11 @@ P27 renders the actual development title/motd with full C/S and required
 archiso kernel options. Restoring the defective whole-entry naming check
 must reject this valid control. Identity checks still apply to the title
 and motd, and template markers must all be resolved.
+
+P28 reinserts the excluded MEMDISK hook; the UEFI CD-ROM hook contract must
+refuse and accept its restoration. P29 removes the exact firstboot mask;
+its restored `/dev/null` target passes again. The strict profile inventory
+admits this one disabling overlay to prevent the observed timezone prompt.
+R12 removes the build-log error guard: the observed missing-memdisk binary
+and failed pacman hook records must then make the regression test fail.
+Firmware warnings alone remain a passing control.

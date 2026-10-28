@@ -28,6 +28,7 @@ airootfs/etc/systemd/system/multi-user.target.wants/systemd-resolved.service	sym
 airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service	symlink	/usr/lib/systemd/system/systemd-networkd-wait-online.service	archiso v91 configs/releng/airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service	-	copied
 airootfs/etc/systemd/system/pacman-init.service	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/pacman-init.service	a5407465b6b533bf7608bede2fa0035223b9aa659afca4223d40bca952cd6fd4	copied
 airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket	symlink	/usr/lib/systemd/system/systemd-networkd.socket	archiso v91 configs/releng/airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket	-	copied
+airootfs/etc/systemd/system/systemd-firstboot.service	symlink	/dev/null	written here	-	written
 airootfs/etc/systemd/system/systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf	3832d89abb32080a190c5b902c64fa7cdf219eafa921523f4e478712742a7df6	copied
 efiboot/loader/entries/01-live.conf	file	-	archiso v91 configs/releng/efiboot/loader/entries/01-archiso-linux.conf	b42fbbb784d931c198d3f29907e69e4b6c187f1451099d06385c9541d43349fe	adapted
 efiboot/loader/loader.conf	file	-	archiso v91 configs/releng/efiboot/loader/loader.conf	3a445295e0f99c97fdde0e0cd1300260a4af380e7d1c7e5ea93ae0c96d2b03b1	adapted
