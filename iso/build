@@ -95,6 +95,7 @@ ENABLED_UNITS = {
 }
 UNIT_FILES = {
     "pacman-init.service",
+    "systemd-firstboot.service",
     "etc-pacman.d-gnupg.mount",
     "getty@tty1.service.d/autologin.conf",
     "systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf",
@@ -115,7 +116,6 @@ LIVE_HOOKS = [
     "udev",
     "modconf",
     "kms",
-    "memdisk",
     "archiso",
     "archiso_loop_mnt",
     "block",
@@ -127,6 +127,7 @@ PROFILE_LICENSE_SHA256 = (
     "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 )
 PROFILE_FILES = {
+    "airootfs/etc/systemd/system/systemd-firstboot.service",
     "LICENSE",
     "ORIGIN.tsv",
     "airootfs/etc/hostname",
@@ -164,6 +165,7 @@ PROFILE_FILES = {
     "profiledef.sh",
 }
 PROFILE_LINKS = {
+    "airootfs/etc/systemd/system/systemd-firstboot.service": "/dev/null",
     "airootfs/etc/resolv.conf": "/run/systemd/resolve/stub-resolv.conf",
     "airootfs/etc/systemd/system-generators/systemd-gpt-auto-generator": "/dev/null",
     "airootfs/etc/systemd/system/dbus-org.freedesktop.network1.service": "/usr/lib/systemd/system/systemd-networkd.service",
@@ -1221,6 +1223,19 @@ def deterministic_tar(dest: Path, members: list[tuple[str, Path]], epoch: int) -
             tar.addfile(info, io.BytesIO(data))
 
 
+def check_build_log(text: str) -> None:
+    failures = [
+        line
+        for line in text.splitlines()
+        if line.strip().startswith(("==> ERROR:", "error:"))
+    ]
+    if failures:
+        raise Refusal(
+            "mkarchiso reported a build error despite its exit status: "
+            + "; ".join(failures)
+        )
+
+
 def render_profile(profile: Path, mode: str, commit: str, s_commit: str) -> None:
     text = MODE_TEXT[mode]
     motd = profile / "airootfs/etc/motd"
@@ -1375,6 +1390,8 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
         ).returncode
     if status != 0:
         raise Refusal(f"mkarchiso failed ({status}); see {logs / 'mkarchiso.log'}")
+
+    check_build_log(read_regular(logs / "mkarchiso.log"))
 
     airootfs = mk_work / "x86_64/airootfs"
     packages = read_local_db(airootfs)

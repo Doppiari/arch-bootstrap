@@ -155,7 +155,11 @@ payload and follow the admission rule.
   (root login by password), `livecd-talk`, `livecd-alsa-unmuter`,
   `choose-mirror` and `reflector`. Kept: the tty1 autologin to a root
   shell, `pacman-init.service` (the live keyring) and the networkd and
-  resolved configuration.
+  resolved configuration. The development profile additionally masks
+  `systemd-firstboot.service` with exactly `/dev/null`: the intentionally
+  unset timezone otherwise produces an interactive Initial Setup prompt
+  before login. This disables a service rather than adding an entrypoint;
+  the validator enumerates and requires this exact disabling overlay.
 - **Branding:** every `releng` text naming Arch Linux as the medium's
   identity is replaced: `iso_name`, `iso_label`, `iso_publisher`,
   `iso_application`, `install_dir`, the boot entry title and `motd`
@@ -163,8 +167,12 @@ payload and follow the admission rule.
   is the mount point of the `mkinitcpio-archiso` hooks that `confirm_wipe`
   reads.
 - **Kept upstream behaviour:** the `archiso` initramfs hooks without the
-  PXE hooks, `squashfs` root image, `xz` compression and `pacman-mirrorlist`
-  with releng's hook that uncomments its entries at build time.
+  PXE or MEMDISK hooks, `squashfs` root image, `xz` compression and `pacman-mirrorlist`
+  with releng's hook that uncomments its entries at build time. The real
+  development build found that MEMDISK requires `memdiskfind` from the
+  excluded syslinux package. It is unused for this UEFI CD-ROM route. A
+  reported initramfs or pacman hook error now refuses even when mkarchiso
+  returns success; see [the observed failures](../../problems/iso-live-hooks-and-firstboot.md).
 
 ### Live payload
 

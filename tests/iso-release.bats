@@ -392,3 +392,22 @@ paths = ['usr/share/doc/dosfstools/COPYING', 'usr/share/licenses/sample/LICENSE'
 assert api['notice_paths']({'files': paths}) == paths[:3]
 PY
 }
+
+@test "mkarchiso success cannot hide an initramfs hook failure" {
+	python3 - "$REPO" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+api = runpy.run_path(str(Path(sys.argv[1]) / 'iso/build'))
+good = "==> WARNING: Possibly missing firmware for module: 'i915'\n[mkarchiso] INFO: Done!\n"
+api['check_build_log'](good)
+for failure in ["==> ERROR: binary not found: 'memdiskfind'\n", 'error: command failed to execute correctly\n']:
+    try:
+        api['check_build_log'](good + failure)
+    except api['Refusal']:
+        pass
+    else:
+        raise AssertionError('initramfs error was accepted')
+api['check_build_log'](good)
+PY
+}

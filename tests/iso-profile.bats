@@ -152,3 +152,40 @@ assert 'DEVELOPMENT BUILD, UNSIGNED, NOT A RELEASE' in motd
 assert '{{' not in motd + entry
 PY
 }
+
+@test "UEFI CD-ROM hooks exclude the syslinux memdisk dependency" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import shlex
+import sys
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+path = root / 'iso/profile/airootfs/etc/mkinitcpio.conf.d/archiso.conf'
+line = next(line for line in path.read_text().splitlines() if line.startswith('HOOKS='))
+hooks = shlex.split(line.removeprefix('HOOKS=(').removesuffix(')'))
+assert 'memdisk' not in hooks
+original = path.read_bytes()
+path.write_text(path.read_text().replace('base udev', 'base udev memdisk'))
+assert api['check_profile'](root)
+path.write_bytes(original)
+assert api['check_profile'](root) == []
+PY
+}
+
+@test "the live medium masks interactive first-boot setup without setting a timezone" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+mask = root / 'iso/profile/airootfs/etc/systemd/system/systemd-firstboot.service'
+assert mask.is_symlink() and str(mask.readlink()) == '/dev/null'
+assert not (root / 'iso/profile/airootfs/etc/localtime').exists()
+mask.unlink()
+assert api['check_profile'](root)
+mask.symlink_to('/dev/null')
+assert api['check_profile'](root) == []
+PY
+}

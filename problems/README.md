@@ -29,3 +29,6 @@ the check that now prevents a regression.
   records why source/bytecode names are not counted as image notice texts.
 - [`iso-kernel-parameters-are-not-medium-identity.md`](iso-kernel-parameters-are-not-medium-identity.md)
   separates required archiso boot parameters from the rendered medium title.
+- [`iso-live-hooks-and-firstboot.md`](iso-live-hooks-and-firstboot.md)
+  records an initramfs hook error hidden by success and an interactive setup
+  prompt that stopped the live login.
