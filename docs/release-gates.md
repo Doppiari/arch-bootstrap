@@ -192,6 +192,25 @@ through an independent channel. An unsigned build is a development
 build, whatever it contains. Static validation is software-verified; the
 explicit build/VM gate and physical qualification are recorded separately.
 
+### Local development observation, 2026-10-28
+
+Steps 1–4 were exercised for stage 1
+`b9a488fb5234d20b7246b84619d902c4c18abfab`, naming stage 2
+`96ad3ad257a1ed4b24214e98868ce076e87d3a40`; this is not a frozen release pair.
+Two fresh builders completed with 150-package manifests that match. The image
+comparison correctly failed, with a [concrete cache/timestamp diagnosis](../problems/iso-build-cache-and-timestamps.md).
+The first unsigned image passed the OVMF serial/record/command/Argon2id gate
+and closed-input default dry-run refusal. Its scratch disk's before/after
+SHA-256 matched. [ISO instructions and exact result](../iso/README.md) separate
+this explicit gate from the normal-user offline verifier and its CI jobs.
+
+This finishes the local development exercise with an explained comparison
+failure; it does not pass the reproducibility/signing gate. All packages remain
+unadmitted, source delivery unresolved, and production key/hosting/naming
+undecided. Step 5, the physical development-only boots, is pending acceptance
+of this evidence and separate operator action. Clean-install gates 3 and 4,
+full-product qualification and public redistribution remain pending.
+
 ## Evidence and publication rule
 
 A component fix, hosted green CI or one successful laptop does not authorize

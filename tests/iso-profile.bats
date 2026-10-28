@@ -189,3 +189,70 @@ mask.symlink_to('/dev/null')
 assert api['check_profile'](root) == []
 PY
 }
+
+@test "the embedded source refuses stage-two trees and artwork" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+assert api['check_profile'](root) == []
+for top in api['STAGE2_TOP']:
+    directory = root / top
+    directory.mkdir()
+    path = directory / 'example.yml'
+    path.write_text('stage_two: true\n')
+    assert api['check_profile'](root), top
+    path.unlink()
+    directory.rmdir()
+    assert api['check_profile'](root) == []
+path = root / 'unreviewed.png'
+path.write_bytes(b'fixture artwork')
+assert api['check_profile'](root)
+path.unlink()
+assert api['check_profile'](root) == []
+PY
+}
+
+@test "profile inputs refuse absence redirection unreadability and duplicate YAML keys" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+repo, root = map(Path, sys.argv[1:])
+
+
+def check(expected):
+    result = subprocess.run([sys.executable, str(repo / 'iso/build'), '--check-profile', '--root', str(root)],
+                            capture_output=True, text=True)
+    assert result.returncode == expected, result.stderr
+
+
+check(0)
+for relative in ['iso/build-inputs.yml', 'iso/admission.yml', 'iso/profile/pacman.conf']:
+    path = root / relative
+    data = path.read_bytes()
+    path.unlink()
+    check(1)
+    outside = root / 'redirected'
+    outside.write_bytes(data)
+    path.symlink_to(outside)
+    check(1)
+    path.unlink()
+    outside.unlink()
+    path.write_bytes(data)
+    path.chmod(0)
+    check(1)
+    path.chmod(0o644)
+    check(0)
+for relative in ['iso/build-inputs.yml', 'iso/admission.yml']:
+    path = root / relative
+    data = path.read_bytes()
+    path.write_bytes(data + b'\nschema_version: 1\n')
+    check(1)
+    path.write_bytes(data)
+    check(0)
+PY
+}

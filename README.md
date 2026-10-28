@@ -236,6 +236,11 @@ and interfaces](iso/README.md) are software-verified; the explicit two-build
 and UEFI VM gate is separate from CI. No package is admitted and no
 production key or public download exists. Physical qualification remains
 pending, and the upstream live-medium route above remains available.
+The local development gate produced two real images at
+`b9a488fb5234d20b7246b84619d902c4c18abfab`: their package manifests match,
+their [image mismatch is diagnosed](problems/iso-build-cache-and-timestamps.md),
+and the first passed a no-write UEFI VM smoke test. This is software-verified
+only; both images remain unsigned and ineligible for release.
 Interesting tooling failures are indexed under
 [`problems/README.md`](problems/README.md).
 
@@ -248,6 +253,8 @@ Interesting tooling failures are indexed under
 - [x] optional encrypted dedicated VM disk;
 - [x] verified stage-2 storage contract for single- and two-disk layouts;
 - [x] one local/hosted verification entrypoint;
+- [x] unsigned development image interfaces and real build/UEFI VM gate, software-verified;
+- [ ] physical installer-image boot on Nitro and Predator;
 - [x] two-loop-device release gate implemented;
 - [x] safe rerun and visible teardown contract implemented;
 - [x] complete two-loop-device PASS evidence from the disposable Arch VM;

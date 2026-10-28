@@ -32,3 +32,6 @@ the check that now prevents a regression.
 - [`iso-live-hooks-and-firstboot.md`](iso-live-hooks-and-firstboot.md)
   records an initramfs hook error hidden by success and an interactive setup
   prompt that stopped the live login.
+- [`iso-build-cache-and-timestamps.md`](iso-build-cache-and-timestamps.md)
+  diagnoses unequal development images with equal package manifests and keeps
+  signing ineligible.
