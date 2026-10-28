@@ -57,3 +57,9 @@ P30 adds each canonical stage-2 source tree and artwork to the archive input;
 the real validator refuses and the cleaned controls pass. P31 removes,
 redirects and makes each structured profile input unreadable, and duplicates
 YAML keys. These are refusals, followed by passing restored controls.
+
+P32 replaces full-scalar revision matching with an end-anchored prefix match:
+LF/CR/CRLF-suffixed S must make the fixture fail. P33 removes duplicate literal
+permission-key refusal; its repeated-key fixture fails. P34 ignores the
+admission-only scope of `--mode`; the real CLI fixture fails. Each fault is
+restored from a saved copy and the corresponding control passes again.

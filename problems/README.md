@@ -35,3 +35,6 @@ the check that now prevents a regression.
 - [`iso-build-cache-and-timestamps.md`](iso-build-cache-and-timestamps.md)
   diagnoses unequal development images with equal package manifests and keeps
   signing ineligible.
+- [`iso-exact-input-scalars.md`](iso-exact-input-scalars.md)
+  records trailing line breaks in revision fields, duplicate literal
+  permissions and an ignored mode flag.
