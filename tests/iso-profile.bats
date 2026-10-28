@@ -256,3 +256,34 @@ for relative in ['iso/build-inputs.yml', 'iso/admission.yml']:
     check(0)
 PY
 }
+
+@test "exact revision scalars reject trailing line breaks and repeated permissions" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+path = root / 'iso/build-inputs.yml'
+original = path.read_bytes()
+for suffix in ['\n', '\r', '\r\n']:
+    data = api['load_yaml'](path)
+    data['stage2']['commit'] += suffix
+    path.write_text(api['yaml'].safe_dump(data, sort_keys=False))
+    assert api['check_profile'](root), repr(suffix)
+    path.write_bytes(original)
+    assert api['check_profile'](root) == []
+profiledef = root / 'iso/profile/profiledef.sh'
+original = profiledef.read_bytes()
+profiledef.write_text(profiledef.read_text().replace('["/etc/shadow"]="0:0:400"',
+    '["/etc/shadow"]="0:0:400"\n  ["/etc/shadow"]="0:0:777"'))
+assert api['check_profile'](root)
+profiledef.write_bytes(original)
+assert api['check_profile'](root) == []
+PY
+}
+
+@test "mode selection is accepted only by the admission-check action" {
+	run python3 "$REPO/iso/build" --check-profile --root "$FIXTURE" --mode release-candidate
+	[ "$status" -eq 2 ]
+}

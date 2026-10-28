@@ -308,20 +308,22 @@ def check_inputs(inputs: Any, errors: list[str]) -> None:
         errors,
     ):
         archiso = inputs["archiso"]
-        if not isinstance(archiso["package_version"], str) or not PKGVER.match(
+        if not isinstance(archiso["package_version"], str) or not PKGVER.fullmatch(
             archiso["package_version"]
         ):
             errors.append(
                 "build-inputs.yml: archiso.package_version must be one exact pkgver-pkgrel string"
             )
-        if not isinstance(archiso["commit"], str) or not HEX40.match(archiso["commit"]):
+        if not isinstance(archiso["commit"], str) or not HEX40.fullmatch(
+            archiso["commit"]
+        ):
             errors.append(
                 "build-inputs.yml: archiso.commit must be 40 lowercase hexadecimal characters"
             )
         if not isinstance(archiso["tag"], str) or not archiso["tag"]:
             errors.append("build-inputs.yml: archiso.tag must be a string")
     keyring = inputs["archlinux_keyring"]
-    if not isinstance(keyring, str) or not PKGVER.match(keyring):
+    if not isinstance(keyring, str) or not PKGVER.fullmatch(keyring):
         errors.append(
             "build-inputs.yml: archlinux_keyring must be one exact pkgver-pkgrel string"
         )
@@ -341,7 +343,9 @@ def check_inputs(inputs: Any, errors: list[str]) -> None:
         "build-inputs.yml stage2", inputs["stage2"], {"repository", "commit"}, errors
     ):
         stage2 = inputs["stage2"]
-        if not isinstance(stage2["commit"], str) or not HEX40.match(stage2["commit"]):
+        if not isinstance(stage2["commit"], str) or not HEX40.fullmatch(
+            stage2["commit"]
+        ):
             errors.append(
                 "build-inputs.yml: stage2.commit (S) must be 40 lowercase hexadecimal characters"
             )
@@ -351,7 +355,7 @@ def check_inputs(inputs: Any, errors: list[str]) -> None:
             errors.append("build-inputs.yml: stage2.repository must be an https URL")
     fingerprint = inputs["release_key_fingerprint"]
     if fingerprint is not None and (
-        not isinstance(fingerprint, str) or not FPR.match(fingerprint)
+        not isinstance(fingerprint, str) or not FPR.fullmatch(fingerprint)
     ):
         errors.append(
             "build-inputs.yml: release_key_fingerprint must be null or 40 uppercase hexadecimal characters"
@@ -400,6 +404,10 @@ def parse_profiledef(text: str, errors: list[str]) -> dict[str, Any]:
             if name == "file_permissions":
                 perms: dict[str, str] = {}
                 for item in re.findall(r'\["([^"]+)"\]="([^"]*)"', body):
+                    if item[0] in perms:
+                        errors.append(
+                            f"profiledef.sh: duplicate file_permissions key {item[0]}"
+                        )
                     perms[item[0]] = item[1]
                 if re.sub(r'\["[^"]+"\]="[^"]*"', "", body).strip():
                     errors.append(
@@ -601,7 +609,7 @@ def check_origin(
                 errors.append(
                     f"ORIGIN.tsv: written file {path} must say 'written here' and -"
                 )
-        elif not HEX64.match(upstream) or not origin.startswith("archiso v91 "):
+        elif not HEX64.fullmatch(upstream) or not origin.startswith("archiso v91 "):
             errors.append(
                 f"ORIGIN.tsv: {path} needs its archiso v91 origin and upstream SHA-256"
             )
@@ -678,7 +686,7 @@ def read_requests(text: str, errors: list[str]) -> list[str]:
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
-        if not PKGNAME.match(line):
+        if not PKGNAME.fullmatch(line):
             errors.append(f"packages.x86_64: {line!r} is not one package name")
             continue
         if line in names:
@@ -713,10 +721,10 @@ def load_admission(path: Path, errors: list[str]) -> dict[str, dict[str, str]]:
         ):
             continue
         name, version = entry["name"], entry["version"]
-        if not isinstance(name, str) or not PKGNAME.match(name):
+        if not isinstance(name, str) or not PKGNAME.fullmatch(name):
             errors.append(f"{where}: name must be one package name")
             continue
-        if not isinstance(version, str) or not PKGVER.match(version):
+        if not isinstance(version, str) or not PKGVER.fullmatch(version):
             errors.append(f"{where} ({name}): version must be one exact pkgver-pkgrel")
         if entry["decision"] not in DECISIONS:
             errors.append(
@@ -870,9 +878,9 @@ def read_manifest(path: Path) -> list[dict[str, str]]:
             raise Refusal(f"{path} line {number}: {len(fields)} fields")
         row = dict(zip(MANIFEST_HEADER, fields))
         if (
-            not PKGNAME.match(row["name"])
-            or not PKGVER.match(row["version"])
-            or not HEX64.match(row["sha256"])
+            not PKGNAME.fullmatch(row["name"])
+            or not PKGVER.fullmatch(row["version"])
+            or not HEX64.fullmatch(row["sha256"])
         ):
             raise Refusal(f"{path} line {number}: malformed row")
         if row["arch"] not in ("any", "x86_64") or not re.fullmatch(
@@ -1128,7 +1136,7 @@ def clean_commit(root: Path) -> str:
             + status.stdout.rstrip()
         )
     commit = git(root, "rev-parse", "--verify", "HEAD^{commit}")
-    if not HEX40.match(commit):
+    if not HEX40.fullmatch(commit):
         raise Refusal(f"HEAD is not a full commit id: {commit}")
     return commit
 
@@ -1600,6 +1608,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--work", type=Path)
     parser.add_argument("--verify-user")
     args = parser.parse_args(argv)
+    if args.mode is not None and not args.check_admission:
+        parser.error(
+            "--mode requires --check-admission; build mode is pinned in iso/build-inputs.yml"
+        )
     try:
         if args.check_profile:
             errors = check_profile(args.root)
