@@ -229,11 +229,13 @@ It uses two sparse loop devices and proves:
 not a substitute for the complete two-disk gate.
 
 Release procedure: [`docs/release-gates.md`](docs/release-gates.md).
-A bootable installer image is proposed, not built:
+The installer image design remains Proposed:
 [`docs/adr/0001-iso-build-and-distribution.md`](docs/adr/0001-iso-build-and-distribution.md)
-says how it would be built, verified and signed. No profile, image or
-signature exists; implementation is pending, and the path above stays the
-way to install.
+defines its payload, admission and signing gates. The [development profile
+and interfaces](iso/README.md) are software-verified; the explicit two-build
+and UEFI VM gate is separate from CI. No package is admitted and no
+production key or public download exists. Physical qualification remains
+pending, and the upstream live-medium route above remains available.
 Interesting tooling failures are indexed under
 [`problems/README.md`](problems/README.md).
 

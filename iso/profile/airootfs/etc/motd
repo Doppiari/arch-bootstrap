@@ -1,0 +1,14 @@
+HyperLab installer image (working name)
+{{MODE}}
+
+Stage 1 commit, embedded under /root:  {{C}}
+Stage 2 commit, cloned after install:  {{S}}
+Pinned build inputs: /usr/local/share/hyperlab-installer/release.json
+
+Nothing on this medium starts the installer, opens a disk or writes one.
+Connect first: wired DHCP works by itself; for Wi-Fi use iwctl. Then:
+
+  bash /root/arch-bootstrap/bootstrap
+      dry run: asks its questions, writes nothing
+  env DRY_RUN=0 bash /root/arch-bootstrap/bootstrap
+      real installation: erases every disk whose path you type back

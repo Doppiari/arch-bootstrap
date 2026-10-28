@@ -1,0 +1,12 @@
+base
+linux
+mkinitcpio
+mkinitcpio-archiso
+arch-install-scripts
+gptfdisk
+parted
+cryptsetup
+btrfs-progs
+dosfstools
+e2fsprogs
+iwd

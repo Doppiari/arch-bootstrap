@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Authenticate a complete download set with an independently obtained fingerprint."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import runpy
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_API = runpy.run_path(str(Path(__file__).with_name("compare")))
+Refusal = _API["Refusal"]
+
+
+def verify(directory: Path, key: Path, fingerprint: str) -> None:
+    if not re.fullmatch(r"[0-9A-Fa-f]{40}", fingerprint):
+        raise Refusal("a full 40-hexadecimal primary-key fingerprint is required")
+    fingerprint = fingerprint.upper()
+    for path in (key, directory / "SHA256SUMS", directory / "SHA256SUMS.sig"):
+        _API["read_regular_bytes"](path)
+    with tempfile.TemporaryDirectory(prefix="iso-download-") as temp:
+        os.chmod(temp, 0o700)
+        env = dict(os.environ, GNUPGHOME=temp)
+        base = [
+            "gpg",
+            "--no-options",
+            "--homedir",
+            temp,
+            "--batch",
+            "--no-auto-key-retrieve",
+        ]
+        imported = subprocess.run(
+            base + ["--import", str(key.absolute())],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if imported.returncode:
+            raise Refusal("cannot import the supplied public key")
+        result = subprocess.run(
+            base
+            + [
+                "--status-fd",
+                "1",
+                "--verify",
+                str((directory / "SHA256SUMS.sig").absolute()),
+                str((directory / "SHA256SUMS").absolute()),
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        signatures = [
+            line.split()
+            for line in result.stdout.splitlines()
+            if line.startswith("[GNUPG:] VALIDSIG ")
+        ]
+        if result.returncode or len(signatures) != 1:
+            raise Refusal("missing or invalid checksum signature")
+        status = signatures[0]
+        if len(status) != 12 or status[-1] != fingerprint:
+            raise Refusal(
+                "signature primary-key fingerprint differs from the expected fingerprint"
+            )
+    _API["checksum_set"](directory, complete=True)
+    result = subprocess.run(
+        ["sha256sum", "--check", "--strict", "SHA256SUMS"],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise Refusal("sha256sum refused a missing or altered artefact")
+    print(f"Authenticated complete download set: {fingerprint}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--key", type=Path, required=True)
+    parser.add_argument("--fingerprint", required=True)
+    args = parser.parse_args()
+    try:
+        verify(args.directory, args.key, args.fingerprint)
+        return 0
+    except (Refusal, OSError, ValueError, TypeError, KeyError) as error:
+        print(f"refused: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

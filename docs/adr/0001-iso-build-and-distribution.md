@@ -2,8 +2,10 @@
 
 Status: Proposed
 
-Nothing in this record is built. No profile, build script, image, signature
-or key exists; every path under `iso/` below is a proposed new file. The
+The [development implementation](../../iso/README.md) supplies the profile,
+build, comparison and verification interfaces and offline refusal tests.
+The separate real-build/UEFI VM gate is not a CI result. No release signature
+or production key exists. The
 operator accepts or rejects the decision; the name, the signing key, its
 custodian and the download host stay the operator's to choose.
 
@@ -93,7 +95,8 @@ a way around the rule.
 
 ### Proposed new files
 
-None of these exists. The implementation unit creates them.
+These paths are implemented for local development; qualification is recorded
+separately from their software contracts.
 
 ```text
 iso/README.md                 build, compare and verify instructions
@@ -376,7 +379,8 @@ are compared by the SHA-256 of the image and of the package manifest:
   and written up under `problems/`. The build stays development-only until a
   fix gives equal digests.
 
-No bit-for-bit result exists yet: no build has run.
+Bit-for-bit reproducibility requires the explicit two-build comparison;
+setting the epoch alone supplies no such result.
 
 ## Artefacts, signing and verification
 

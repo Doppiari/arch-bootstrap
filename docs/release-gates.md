@@ -162,9 +162,11 @@ cover is approved for bundling:
 
 [`adr/0001-iso-build-and-distribution.md`](adr/0001-iso-build-and-distribution.md)
 proposes an installer image built from an archiso profile in this
-repository. It is not accepted and nothing of it is built: no profile,
-image, signature or key exists, and gates 1 to 4 above keep their meaning
-and their pending status. Gate 3 still boots the reviewed upstream Archiso
+repository. It remains Proposed. The [local development interfaces](../iso/README.md)
+and offline refusal contracts are implemented and software-verified. The
+explicit build/VM gate is separate from CI; no release signature, production
+key or public download exists. Gates 1 to 4 above keep their meaning and
+pending status. Gate 3 still boots the reviewed upstream Archiso
 until an image passes the steps below.
 
 An image would qualify in this order, each step only after the previous one:
@@ -187,7 +189,8 @@ version, dependencies included (today only this repository's own files meet
 the rule's evidence conditions, and nothing is admitted yet), and a detached
 signature over `SHA256SUMS` by a key whose fingerprint the user obtains
 through an independent channel. An unsigned build is a development
-build, whatever it contains. Steps 1 to 5 are pending.
+build, whatever it contains. Static validation is software-verified; the
+explicit build/VM gate and physical qualification are recorded separately.
 
 ## Evidence and publication rule
 

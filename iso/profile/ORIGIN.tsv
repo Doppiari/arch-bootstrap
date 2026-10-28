@@ -1,0 +1,36 @@
+path	type	target	origin	upstream_sha256	relation
+LICENSE	file	-	archiso v91 LICENSE	3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986	copied
+ORIGIN.tsv	file	-	written here	-	written
+airootfs/etc/hostname	file	-	archiso v91 configs/releng/airootfs/etc/hostname	a9168a4fabfff3fe22da8b9a3e1cae17f3f46d9f37779ff365a33c4d16f0b99b	adapted
+airootfs/etc/locale.conf	file	-	archiso v91 configs/releng/airootfs/etc/locale.conf	89dd29db91ea608d72b5b4d3d3f5816cc2d3c1dd730741dc41b20ce12f1c2b3b	copied
+airootfs/etc/mkinitcpio.conf.d/archiso.conf	file	-	archiso v91 configs/releng/airootfs/etc/mkinitcpio.conf.d/archiso.conf	cd1d328d0b343719c5975729bf7c8c5a227542beb396574ff4adeac30381db0b	adapted
+airootfs/etc/motd	file	-	written here	-	written
+airootfs/etc/pacman.d/hooks/uncomment-mirrors.hook	file	-	archiso v91 configs/releng/airootfs/etc/pacman.d/hooks/uncomment-mirrors.hook	4b5c728daf038b6c599d0a8e173e2e601044a8a631d0b7af6f5592863afed424	copied
+airootfs/etc/pacman.d/hooks/zzzz99-remove-custom-hooks-from-airootfs.hook	file	-	archiso v91 configs/releng/airootfs/etc/pacman.d/hooks/zzzz99-remove-custom-hooks-from-airootfs.hook	b00ec7d9c5ee91df896130ddb121e53a7ead5726e6216d71477b9ea42b830504	copied
+airootfs/etc/passwd	file	-	archiso v91 configs/releng/airootfs/etc/passwd	949fecf1090f8c5cccf8645cdfe3a803c0d15adec3d0869e0a44011af07f0756	adapted
+airootfs/etc/resolv.conf	symlink	/run/systemd/resolve/stub-resolv.conf	archiso v91 configs/releng/airootfs/etc/resolv.conf	-	copied
+airootfs/etc/shadow	file	-	archiso v91 configs/releng/airootfs/etc/shadow	8ce994663d7588143ad7ed4441b07f468f4f7d3590164dd73ddfa3ea307ece8e	copied
+airootfs/etc/systemd/journald.conf.d/volatile-storage.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/journald.conf.d/volatile-storage.conf	c0c9a711f7554fdd02650409b098fc0636b8f3f574f03d927c6df84f5ec82a7f	copied
+airootfs/etc/systemd/logind.conf.d/do-not-suspend.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/logind.conf.d/do-not-suspend.conf	17ea3cafdfa2575a94d36e7328148bc5da28bb4833e16bc4a474f8dcdc2b73df	copied
+airootfs/etc/systemd/network/20-ethernet.network	file	-	archiso v91 configs/releng/airootfs/etc/systemd/network/20-ethernet.network	4da01b7031f3528ba64c0b0f1461e3d70da06d8c475a752b711cbdb2eaf0c34e	copied
+airootfs/etc/systemd/network/20-wlan.network	file	-	archiso v91 configs/releng/airootfs/etc/systemd/network/20-wlan.network	f345a066b7ab2ee4526a8b3354cc21ea114bdc877c112aa1fe35ffed02eea984	copied
+airootfs/etc/systemd/networkd.conf.d/ipv6-privacy-extensions.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/networkd.conf.d/ipv6-privacy-extensions.conf	d88fd1c481579aa7d0ffc12ef39d77cc474c33bd465eda5515cd114025597dcd	copied
+airootfs/etc/systemd/resolved.conf.d/archiso.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/resolved.conf.d/archiso.conf	5a9c2b59354e526e4c5390505c7037eecefd96b5753826ce265d6062a0554eb3	copied
+airootfs/etc/systemd/system-generators/systemd-gpt-auto-generator	symlink	/dev/null	archiso v91 configs/releng/airootfs/etc/systemd/system-generators/systemd-gpt-auto-generator	-	copied
+airootfs/etc/systemd/system/dbus-org.freedesktop.network1.service	symlink	/usr/lib/systemd/system/systemd-networkd.service	archiso v91 configs/releng/airootfs/etc/systemd/system/dbus-org.freedesktop.network1.service	-	copied
+airootfs/etc/systemd/system/dbus-org.freedesktop.resolve1.service	symlink	/usr/lib/systemd/system/systemd-resolved.service	archiso v91 configs/releng/airootfs/etc/systemd/system/dbus-org.freedesktop.resolve1.service	-	copied
+airootfs/etc/systemd/system/etc-pacman.d-gnupg.mount	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/etc-pacman.d-gnupg.mount	c9df1f5568fb2a6cfb3e84966b2bb2d1994eb7c481ef535289bb94bde8223f2c	copied
+airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/getty@tty1.service.d/autologin.conf	91c35046e7a9d5dc73e0decef359e110d952cb694aa458df8ab37ed55e2ba21d	copied
+airootfs/etc/systemd/system/multi-user.target.wants/iwd.service	symlink	/usr/lib/systemd/system/iwd.service	archiso v91 configs/releng/airootfs/etc/systemd/system/multi-user.target.wants/iwd.service	-	copied
+airootfs/etc/systemd/system/multi-user.target.wants/pacman-init.service	symlink	../pacman-init.service	archiso v91 configs/releng/airootfs/etc/systemd/system/multi-user.target.wants/pacman-init.service	-	copied
+airootfs/etc/systemd/system/multi-user.target.wants/systemd-networkd.service	symlink	/usr/lib/systemd/system/systemd-networkd.service	archiso v91 configs/releng/airootfs/etc/systemd/system/multi-user.target.wants/systemd-networkd.service	-	copied
+airootfs/etc/systemd/system/multi-user.target.wants/systemd-resolved.service	symlink	/usr/lib/systemd/system/systemd-resolved.service	archiso v91 configs/releng/airootfs/etc/systemd/system/multi-user.target.wants/systemd-resolved.service	-	copied
+airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service	symlink	/usr/lib/systemd/system/systemd-networkd-wait-online.service	archiso v91 configs/releng/airootfs/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service	-	copied
+airootfs/etc/systemd/system/pacman-init.service	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/pacman-init.service	a5407465b6b533bf7608bede2fa0035223b9aa659afca4223d40bca952cd6fd4	copied
+airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket	symlink	/usr/lib/systemd/system/systemd-networkd.socket	archiso v91 configs/releng/airootfs/etc/systemd/system/sockets.target.wants/systemd-networkd.socket	-	copied
+airootfs/etc/systemd/system/systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf	file	-	archiso v91 configs/releng/airootfs/etc/systemd/system/systemd-networkd-wait-online.service.d/wait-for-only-one-interface.conf	3832d89abb32080a190c5b902c64fa7cdf219eafa921523f4e478712742a7df6	copied
+efiboot/loader/entries/01-live.conf	file	-	archiso v91 configs/releng/efiboot/loader/entries/01-archiso-linux.conf	b42fbbb784d931c198d3f29907e69e4b6c187f1451099d06385c9541d43349fe	adapted
+efiboot/loader/loader.conf	file	-	archiso v91 configs/releng/efiboot/loader/loader.conf	3a445295e0f99c97fdde0e0cd1300260a4af380e7d1c7e5ea93ae0c96d2b03b1	adapted
+packages.x86_64	file	-	written here	-	written
+pacman.conf	file	-	archiso v91 configs/releng/pacman.conf	a250b3998460e0f2c39e8cc458382171b372b57ace91f36d2eae50d124c0c7fc	adapted
+profiledef.sh	file	-	archiso v91 configs/releng/profiledef.sh	2fffd7ba3226102ce0db59918df4509cb571792e6953de44145badfe7534a475	adapted
