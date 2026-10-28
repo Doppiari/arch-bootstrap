@@ -27,3 +27,5 @@ the check that now prevents a regression.
   records why the verifier runs as a normal user and never calls sudo.
 - [`iso-notice-file-classification.md`](iso-notice-file-classification.md)
   records why source/bytecode names are not counted as image notice texts.
+- [`iso-kernel-parameters-are-not-medium-identity.md`](iso-kernel-parameters-are-not-medium-identity.md)
+  separates required archiso boot parameters from the rendered medium title.
