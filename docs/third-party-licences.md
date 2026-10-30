@@ -312,15 +312,27 @@ where its applicable licence and notice texts are (see
 
 Where the packages the installer fetches keep their licence texts, from the
 official file lists (`https://archlinux.org/packages/<repo>/<arch>/<name>/files/`,
-retrieved 2026-10-26, for the versions in section 2):
+retrieved 2026-10-26, for the versions in section 2; Ansible rechecked below):
 
 | Location | Packages |
 | --- | --- |
 | own file under `/usr/share/licenses/<package>/` | `intel-ucode` (`LICENSE`), `amd-ucode` (`LICENSE.amd-ucode`), `sbctl` (`LICENSE`), `zram-generator` (`LICENSE`), `vim` (`license.txt`), `sudo` (`LICENSE.md`, also as `/usr/share/doc/sudo/LICENSE.md`), the `linux-firmware` split packages and `linux-firmware-whence` (section 3) |
 | documentation directory only | `dosfstools`: `/usr/share/doc/dosfstools/COPYING` |
-| inside the Python tree | `ansible`: `usr/lib/python3.14/site-packages/ansible-14.5.0.dist-info/licenses/COPYING`, plus 305 `COPYING`, `LICENSE`, `NOTICE` and similar files in 91 collection directories under `ansible_collections/` |
+| Python tree and documentation directory | `ansible`: `/usr/lib/python3.14/site-packages/ansible-14.5.0.dist-info/licenses/COPYING` and `/usr/share/doc/ansible/COPYING` (package-level copies; collection-specific terms remain unreviewed, U7) |
 | no licence file of its own | `linux-hardened`, `btrfs-progs`, `cryptsetup`, `iwd`, `git`, `archlinux-keyring`; `git` ships one `COPYING` for a bundled component, `usr/share/git/subtree/COPYING` |
 | no files at all | `base` |
+
+The Ansible locations were rechecked on 2026-10-30 for `ansible` 14.5.0-1,
+still the version in the [official package record](https://archlinux.org/packages/extra/any/ansible/).
+The web file list exceeded the retrieval limit, so the paths were checked
+against the contents of the
+[exact archived package](https://archive.archlinux.org/packages/a/ansible/ansible-14.5.0-1-any.pkg.tar.zst)
+(SHA-256 `1513d1443aace21fbb0872baf3f1d5b78d8ad326d758a6153f15ae7790d5293f`).
+A file list establishes shipped paths, not the legal sufficiency of notices.
+No count of collection notice texts is asserted: filenames containing
+`license` can belong to programs, such as `cp_mgmt_add_central_license.py`
+and its bytecode. Collection-specific licence terms remain unreviewed (U7);
+this correction admits no package for an ISO.
 
 For the packages without a licence file of their own, the only text on an
 installed system is the generic one of the shared
