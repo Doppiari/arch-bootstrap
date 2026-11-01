@@ -328,6 +328,7 @@ The web file list exceeded the retrieval limit, so the paths were checked
 against the contents of the
 [exact archived package](https://archive.archlinux.org/packages/a/ansible/ansible-14.5.0-1-any.pkg.tar.zst)
 (SHA-256 `1513d1443aace21fbb0872baf3f1d5b78d8ad326d758a6153f15ae7790d5293f`).
+The archive was retrieved over HTTPS; its package signature was not checked.
 A file list establishes shipped paths, not the legal sufficiency of notices.
 No count of collection notice texts is asserted: filenames containing
 `license` can belong to programs, such as `cp_mgmt_add_central_license.py`
