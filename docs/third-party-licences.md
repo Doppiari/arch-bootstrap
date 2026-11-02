@@ -152,9 +152,64 @@ PKGBUILD at tag
 `package_linux-firmware` installs nothing and depends on twelve split
 packages, which carry the firmware. (The file list the website shows for the
 meta package is dated 2025-05-24, older than the split, and was not used.)
-Each split package has `LicenseRef-WHENCE` plus its own identifiers and
-depends on `linux-firmware-whence`, which ships the upstream `WHENCE` file as
-`/usr/share/licenses/linux-firmware-whence/WHENCE`.
+Each of the twelve has `LicenseRef-WHENCE` in its record, all but
+`linux-firmware-other` with identifiers of their own (table below). The
+upstream `WHENCE` file itself is shipped by one more package,
+`linux-firmware-whence`, as
+`/usr/share/licenses/linux-firmware-whence/WHENCE`; no other package of this
+base ships it. `LicenseRef-WHENCE` in a record names terms; it is not a
+dependency.
+
+Runtime and build dependencies at 20260916-1:
+
+| Package | Runtime dependencies (`depends`) | Build dependencies (`makedepends`, the same for the whole base) | Ships `WHENCE` |
+| --- | --- | --- | --- |
+| `linux-firmware` (meta) | the twelve split packages | `git`, `parallel`, `python`, `rdfind` | no |
+| `linux-firmware-amd`, `-amdgpu`, `-atheros`, `-broadcom`, `-cirrus`, `-intel`, `-mediatek`, `-nvidia`, `-radeon`, `-realtek`, `-ti` | `linux-firmware-whence` | the same | no |
+| `linux-firmware-other` | **none** | the same | no |
+| `linux-firmware-whence` | none | the same | yes |
+
+Sources, retrieved 2026-11-02: in the PKGBUILD at tag `20260916-1` (commit
+`0ef816f38f99e3e571fe8e4bd563173337e83a79`, file SHA-256
+`f0169fabd2844f8010536be343f72878457035a42c405b6ae3d26fa8b113be14`),
+`package_linux-firmware-other` sets no `depends`, while each of the eleven
+other split functions above sets `depends=(linux-firmware-whence)`; the
+[`.SRCINFO`](https://gitlab.archlinux.org/archlinux/packaging/packages/linux-firmware/-/blob/20260916-1/.SRCINFO)
+at the same tag (SHA-256
+`a987e22d0add10a42ed88503c5d6054937ebbc6bb330f4a1ec48c48fd1a4d6b4`) agrees.
+The metadata built into the archived packages agrees as well: the `.PKGINFO`
+of
+[`linux-firmware-other-20260916-1-any.pkg.tar.zst`](https://archive.archlinux.org/packages/l/linux-firmware-other/linux-firmware-other-20260916-1-any.pkg.tar.zst)
+(SHA-256 `f8105aa5ebc26b29ed586eaa3612874546a6a20362224af95ad999fe4b075ade`)
+has `makedepend` lines and no `depend` line, that of
+[`linux-firmware-ti-20260916-1-any.pkg.tar.zst`](https://archive.archlinux.org/packages/l/linux-firmware-ti/linux-firmware-ti-20260916-1-any.pkg.tar.zst)
+(SHA-256 `b7511ba47de4dff69e32ee3f9f02923ae7177edda6ea25bb2b74f1517122ebb7`)
+has `depend = linux-firmware-whence`, and that of the meta package
+[`linux-firmware-20260916-1-any.pkg.tar.zst`](https://archive.archlinux.org/packages/l/linux-firmware/linux-firmware-20260916-1-any.pkg.tar.zst)
+(SHA-256 `a8a0530fd63ae55413379afcdf4eacb7b13d271e7ae65cb4475f86e03a45eee7`)
+lists the twelve split packages. Of these four archives, only
+[`linux-firmware-whence-20260916-1-any.pkg.tar.zst`](https://archive.archlinux.org/packages/l/linux-firmware-whence/linux-firmware-whence-20260916-1-any.pkg.tar.zst)
+(SHA-256 `02f3d8273e1b98a4e9f629fbaa5a703657846ad32b90d39a7c70b1f0e25df5db`)
+contains `WHENCE`, with the digest given below; `linux-firmware-other` ships
+licence files but no `WHENCE`. The four package signatures verify against
+the packager key in `archlinux-keyring` 20260909-1; the certification chain
+to the Arch master keys was not evaluated. For the other ten split packages
+the dependency comes from the PKGBUILD and `.SRCINFO` only.
+
+Two cases therefore differ:
+
+- **The full meta package.** Installing `linux-firmware` 20260916-1, as
+  `installer` does, brings in `linux-firmware-whence` through the eleven
+  split packages that depend on it, so its closure contains `WHENCE`. It does
+  not come through `linux-firmware-other`. A later release may change these
+  dependencies; `installer` pins no version.
+- **A selected subset.** Dependency resolution does not supply `WHENCE` to a
+  selection that contains `linux-firmware-other` and none of those eleven. A
+  future subset that contains `linux-firmware-other` must therefore list
+  `linux-firmware-whence` explicitly, and keep `WHENCE` together with the
+  licence files of every selected package. Keeping `WHENCE` documents each
+  firmware's stated origin and terms; it does not by itself establish the
+  right to redistribute every blob (U2).
 
 `WHENCE` at upstream tag `20260916`
 (<https://gitlab.com/kernel-firmware/linux-firmware/-/blob/20260916/WHENCE>,
@@ -206,6 +261,8 @@ own vendor's terms. **Disposition: blocked pending evidence (U2).** A future
 ISO that carries firmware must either review every licence file of every
 split package it keeps, keep `WHENCE` and those files with the image, and
 settle the ten entries without visible source, or carry a reviewed subset.
+A subset keeps `WHENCE` by listing `linux-firmware-whence` itself, not by
+relying on dependencies: `linux-firmware-other` has none.
 
 ### `intel-ucode`
 
