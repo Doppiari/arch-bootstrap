@@ -63,3 +63,30 @@ LF/CR/CRLF-suffixed S must make the fixture fail. P33 removes duplicate literal
 permission-key refusal; its repeated-key fixture fails. P34 ignores the
 admission-only scope of `--mode`; the real CLI fixture fails. Each fault is
 restored from a saved copy and the corresponding control passes again.
+
+P35–P39 check the parsed contents of declared profile files: replace root's
+shell with bootstrap or add a second uid-0 row; change the hostname; add,
+duplicate, remove or change loader settings; redirect linux/initrd or change
+the sort key; change, remove or add file permission entries. Each edit must
+refuse and each restored profile must pass. Removing the corresponding
+validator guard must make this fixture fail.
+
+R13–R16 exercise the same pure guards called by the builder: archiso and
+keyring pins, cryptsetup's successful Argon2id probe, successful VM detection,
+and agreement of pacman query, installed database, archiso pkglist and cache.
+Missing package files, extra cache files and excluded installed packages
+refuse. Remove each guard independently; its fixture must fail, and its
+restored control must pass. The VM adapter is exercised with command-result
+fixtures too, so bypassing its guard is detected without a host build.
+
+R06/R07 additionally change notices bytes with updated digests, tools and
+the file stem. Omitting each comparison field must fail its fixture. R11
+sets either build's verification status, signature policy or release
+eligibility to a failing or missing value, and adds an excluded admission
+entry at C. Removing each signing guard must fail the fixture; the restored
+control reaches only the final frozen-pair/source refusal, with no output.
+
+R17 changes a digest in SHA256SUMS while keeping its previously valid
+signature. Real GnuPG must report BADSIG and the download verifier must
+refuse at signature checking. Restore the original signed checksum bytes
+and the complete set must pass again.

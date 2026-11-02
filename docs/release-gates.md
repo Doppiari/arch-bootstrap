@@ -210,6 +210,11 @@ unadmitted, source delivery unresolved, and production key/hosting/naming
 undecided. Step 5, the physical development-only boots, is pending acceptance
 of this evidence and separate operator action. Clean-install gates 3 and 4,
 full-product qualification and public redistribution remain pending.
+Offline regression fixtures additionally exercise the builder's pin, VM,
+closure and Argon2id refusals. Profile checks fix the live root shell, boot
+paths and permissions; comparison includes notices and tools, and signing
+refuses failed verification, failed signature policy or absent eligibility.
+These checks do not claim another image build or VM run.
 
 ## Evidence and publication rule
 

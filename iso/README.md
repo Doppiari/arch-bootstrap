@@ -32,8 +32,12 @@ and [an unused initramfs hook and first-boot prompt](../problems/iso-live-hooks-
 The profile now drops MEMDISK as well as PXE hooks, refuses reported build
 errors even after a zero mkarchiso exit, and masks interactive first-boot
 setup while keeping the timezone unset. The only autologin remains tty1's
-root shell. The final input checks also [reject trailing line breaks,
+root shell; the serial console also accepts an explicit `root` login with
+no password. The final input checks also [reject trailing line breaks,
 repeated permissions and ignored mode flags](../problems/iso-exact-input-scalars.md).
+The validator additionally [fixes the account, boot paths and permissions](../problems/iso-profile-and-release-guard-gaps.md)
+to the intended values. Pin, VM, closure and Argon2id refusals have offline
+fixtures that exercise the same guards used by the real builder.
 
 The snapshot pins archiso 91-1, keyring 20260909-1 and packages from
 2026-10-25. [build-inputs.yml](build-inputs.yml) names stage 2 by a full commit;
@@ -109,7 +113,8 @@ python3 iso/compare /retained/one/IMAGE.build.json /retained/two/IMAGE.build.jso
 ```
 
 Use the actual generated basenames in place of `IMAGE`. Exit 0 requires
-identical inputs, image digests and package-manifest digests. Exit 1 means
+identical inputs, tools, environment, file stem, image, package-manifest and
+notice digests. Exit 1 means
 refusal or inequality. A comparison cannot be turned into evidence by editing
 its `equal` field: signing recomputes it. An explained image mismatch may
 finish the development gate but never permits signing. SOURCE_DATE_EPOCH is
@@ -145,7 +150,8 @@ The complete fixture download set is `IMAGE.iso`, `IMAGE.packages.tsv`,
 not an accepted source-delivery arrangement. Before a public release the
 operator must decide that arrangement and record a frozen campaign pair.
 Today `iso/sign-release` refuses all builds: development mode, comparison,
-admission, fingerprint and secret-key checks precede the unresolved freeze
+admission, successful verifier/signature-policy results, release eligibility,
+fingerprint and secret-key checks precede the unresolved freeze
 and source gates. It creates no signature or partial output on refusal:
 
 ```bash

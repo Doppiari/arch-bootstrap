@@ -525,6 +525,14 @@ def check_entry(path: Path, errors: list[str]) -> None:
         errors.append(
             f"{path.name}: kernel options must be exactly {' '.join(ENTRY_OPTIONS)}"
         )
+    expected = {
+        "sort-key": "01",
+        "linux": "/%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux",
+        "initrd": "/%INSTALL_DIR%/boot/%ARCH%/initramfs-linux.img",
+    }
+    for key, value in expected.items():
+        if fields[key] != value:
+            errors.append(f"{path.name}: {key} must be {value}")
 
 
 def check_motd(text: str, errors: list[str]) -> None:
@@ -668,6 +676,16 @@ def check_overlays(
             errors.append(
                 "autologin.conf: the tty1 autologin must open root's login shell and nothing else"
             )
+    accounts = [
+        line.split(":")
+        for line in read_regular(profile / "airootfs/etc/passwd").splitlines()
+    ]
+    if accounts != [["root", "x", "0", "0", "root", "/root", "/usr/bin/bash"]]:
+        errors.append("passwd: exactly one root account with /usr/bin/bash is required")
+    if read_regular(profile / "airootfs/etc/hostname").splitlines() != [
+        "hyperlab-installer"
+    ]:
+        errors.append("hostname: must be exactly hyperlab-installer")
     hooks = profile / "airootfs/etc/mkinitcpio.conf.d/archiso.conf"
     if hooks.exists():
         found = [
@@ -705,7 +723,11 @@ def excluded(name: str) -> bool:
 
 
 def load_admission(path: Path, errors: list[str]) -> dict[str, dict[str, str]]:
-    data = load_yaml(path)
+    return parse_admission(load_yaml(path), errors)
+
+
+def parse_admission(data: Any, errors: list[str]) -> dict[str, dict[str, str]]:
+    """Apply the same admission rules to a file or a committed Git object."""
     entries: dict[str, dict[str, str]] = {}
     if not exact_keys("admission.yml", data, {"schema_version", "packages"}, errors):
         return entries
@@ -798,14 +820,11 @@ def check_profile(root: Path) -> list[str]:
             errors.append(f"profiledef.sh: {field} must be set")
         elif naming_violation(value):
             errors.append(f"profiledef.sh: {field} names Arch ({value})")
-    for target in definition.get("file_permissions", {}):
-        if (
-            not (profile / "airootfs" / target.lstrip("/")).exists()
-            and target != "/root"
-        ):
-            errors.append(
-                f"profiledef.sh: file_permissions names {target}, which the profile does not carry"
-            )
+    if definition.get("file_permissions") != {
+        "/etc/shadow": "0:0:400",
+        "/root": "0:0:750",
+    }:
+        errors.append("profiledef.sh: file_permissions must protect shadow and root exactly")
     check_pacman_conf(
         read_regular(profile / "pacman.conf"),
         archive_date if isinstance(archive_date, str) else "",
@@ -822,10 +841,10 @@ def check_profile(root: Path) -> list[str]:
     loader = [
         line.split()
         for line in read_regular(profile / "efiboot/loader/loader.conf").splitlines()
-        if line.strip()
+        if line.strip() and not line.lstrip().startswith("#")
     ]
-    if ["default", "01-live.conf"] not in loader:
-        errors.append("loader.conf: default must be 01-live.conf")
+    if sorted(loader) != [["default", "01-live.conf"], ["timeout", "5"]]:
+        errors.append("loader.conf: exactly default 01-live.conf and timeout 5 are required")
     check_motd(read_regular(profile / "airootfs/etc/motd"), errors)
     license_path = profile / "LICENSE"
     if sha256_file(license_path) != PROFILE_LICENSE_SHA256:
@@ -1102,14 +1121,63 @@ def check_signature_policy(root: Path, work: Path) -> dict[str, Any]:
 # ---- the build ----------------------------------------------------------------------------
 
 
-def in_vm(require: bool) -> str:
-    result = run(["systemd-detect-virt", "--vm"])
-    kind = result.stdout.strip()
-    if require and (result.returncode != 0 or kind in ("", "none")):
+def check_vm(status: int, kind: str) -> None:
+    if status != 0 or kind in ("", "none"):
         raise Refusal(
             "not inside a virtual machine: a build never runs on the operator's host"
         )
+
+
+def in_vm(require: bool) -> str:
+    result = run(["systemd-detect-virt", "--vm"])
+    kind = result.stdout.strip()
+    if require:
+        check_vm(result.returncode, kind)
     return kind
+
+
+def check_pins(installed: dict[str, str], inputs: dict[str, Any]) -> None:
+    expected = {
+        "archiso": inputs["archiso"]["package_version"],
+        "archlinux-keyring": inputs["archlinux_keyring"],
+    }
+    for name, version in expected.items():
+        if installed.get(name) != version:
+            raise Refusal(f"{name} {installed.get(name)} is not the pinned {version}")
+
+
+def check_argon(status: int, help_text: str) -> None:
+    if status != 0 or not re.search(r"\bargon2id\b", help_text):
+        raise Refusal("the live cryptsetup does not list argon2id")
+
+
+def check_closure(
+    queried: list[tuple[str, str]],
+    packages: list[dict[str, Any]],
+    pkglist: list[tuple[str, str]],
+    cached: dict[tuple[str, str], Path],
+    cache_names: list[str],
+) -> None:
+    installed = sorted((p["name"], p["version"]) for p in packages)
+    if sorted(queried) != installed:
+        raise Refusal(
+            "pacman -Q and the local database disagree about the installed closure"
+        )
+    used = set()
+    for name, version in installed:
+        package_file = cached.get((name, version))
+        if package_file is None:
+            raise Refusal(f"{name} {version}: no matching package file")
+        used.add(package_file.name)
+        if excluded(name):
+            raise Refusal(f"{name} is excluded from the live payload but was installed")
+    extra = sorted(
+        name for name in cache_names if name not in used and not name.endswith(".sig")
+    )
+    if extra:
+        raise Refusal(f"package files in the cache that are not installed: {extra}")
+    if sorted(pkglist) != installed:
+        raise Refusal("archiso's pkglist.x86_64.txt differs from the package manifest")
 
 
 def git(root: Path, *args: str) -> str:
@@ -1302,15 +1370,8 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
     if pwd.getpwnam(verify_user).pw_uid == 0:
         raise Refusal("the verification account must be a normal user")
     archiso = installed_version("archiso")
-    if archiso != inputs["archiso"]["package_version"]:
-        raise Refusal(
-            f"archiso {archiso} is not the pinned {inputs['archiso']['package_version']}"
-        )
     keyring = installed_version("archlinux-keyring")
-    if keyring != inputs["archlinux_keyring"]:
-        raise Refusal(
-            f"archlinux-keyring {keyring} is not the pinned {inputs['archlinux_keyring']}"
-        )
+    check_pins({"archiso": archiso, "archlinux-keyring": keyring}, inputs)
     epoch = int(git(root, "log", "-1", "--format=%ct", commit))
     os.environ["SOURCE_DATE_EPOCH"] = str(epoch)
     version = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime(
@@ -1409,10 +1470,6 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
             ["pacman", "-Q", "--dbpath", str(airootfs / "var/lib/pacman")]
         ).splitlines()
     )
-    if queried != sorted((p["name"], p["version"]) for p in packages):
-        raise Refusal(
-            "pacman -Q and the local database disagree about the installed closure"
-        )
     cached: dict[tuple[str, str], Path] = {}
     for package_file in sorted(cache.glob("*.pkg.tar.*")):
         if package_file.name.endswith(".sig"):
@@ -1421,15 +1478,16 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
         if len(identity) != 2 or identity in cached:
             raise Refusal(f"ambiguous package file identity: {package_file}")
         cached[identity] = package_file
+    pkglist = [
+        tuple(line.split())
+        for line in read_regular(
+            mk_work / "iso/hyperlab/pkglist.x86_64.txt"
+        ).splitlines()
+    ]
+    check_closure(queried, packages, pkglist, cached, [p.name for p in cache.iterdir()])
     rows = []
-    used: set[str] = set()
     for package in packages:
-        package_file = cached.get((package["name"], package["version"]))
-        if package_file is None:
-            raise Refusal(
-                f"{package['name']} {package['version']}: no matching package file"
-            )
-        used.add(package_file.name)
+        package_file = cached[(package["name"], package["version"])]
         rows.append(
             [
                 package["name"],
@@ -1439,26 +1497,6 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
                 sha256_file(package_file),
             ]
         )
-    extra = sorted(
-        p.name
-        for p in cache.iterdir()
-        if p.name not in used and not p.name.endswith(".sig")
-    )
-    if extra:
-        raise Refusal(f"package files in the cache that are not installed: {extra}")
-    pkglist = sorted(
-        tuple(line.split())
-        for line in read_regular(
-            mk_work / "iso/hyperlab/pkglist.x86_64.txt"
-        ).splitlines()
-    )
-    if pkglist != sorted((row[0], row[1]) for row in rows):
-        raise Refusal("archiso's pkglist.x86_64.txt differs from the package manifest")
-    for row in rows:
-        if excluded(row[0]):
-            raise Refusal(
-                f"{row[0]} is excluded from the live payload but was installed"
-            )
     manifest = output / f"{stem}.packages.tsv"
     manifest.write_text(
         "\t".join(MANIFEST_HEADER)
@@ -1468,8 +1506,7 @@ def build(root: Path, output: Path, work: Path, verify_user: str) -> int:
     _, admission_report = check_admission(mode, manifest, root / "iso/admission.yml")
 
     argon = run(["chroot", str(airootfs), "/usr/bin/cryptsetup", "--help"])
-    if argon.returncode != 0 or not re.search(r"\bargon2id\b", argon.stdout):
-        raise Refusal("the live cryptsetup does not list argon2id")
+    check_argon(argon.returncode, argon.stdout)
 
     members: list[tuple[str, Path]] = []
     notices: list[dict[str, Any]] = []

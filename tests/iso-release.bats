@@ -62,6 +62,7 @@ def verify(expected=0, fpr=fingerprint, keyfile=public):
     result = subprocess.run([sys.executable, str(repo / 'iso/verify-download'), '--directory', str(files),
                              '--key', str(keyfile), '--fingerprint', fpr], capture_output=True, text=True)
     assert (result.returncode == 0) == (expected == 0), (result.returncode, result.stdout, result.stderr)
+    return result
 
 
 reset()
@@ -86,6 +87,19 @@ for name in ['SHA256SUMS', 'SHA256SUMS.sig']:
     path.write_bytes(original)
     verify()
     print('R02-' + name + ': red/restored green')
+original_sums = sums.read_bytes()
+original_signature = sig.read_bytes()
+lines = sums.read_text().splitlines(True)
+lines[0] = '0' * 64 + lines[0][64:]
+sums.write_text(''.join(lines))
+assert sig.read_bytes() == original_signature
+bad = subprocess.run(['gpg', '--batch', '--status-fd', '1', '--verify', str(sig), str(sums)],
+                     env=dict(os.environ, GNUPGHOME=str(home)), capture_output=True, text=True)
+assert bad.returncode != 0 and '[GNUPG:] BADSIG ' in bad.stdout, bad.stdout
+assert 'invalid checksum signature' in verify(1).stderr
+sums.write_bytes(original_sums)
+verify()
+print('R17-stale-valid-signature: BADSIG/refused, restored green')
 sig.write_bytes(b'bad signature')
 verify(1)
 reset()
@@ -140,7 +154,8 @@ for directory in [work / 'one', work / 'two']:
     directory.mkdir()
     stem = 'fixture-dev-unsigned'
     record = dict(schema_version=1, mode='development', signed=False, release_eligible=False,
-                  stem=stem, arch_bootstrap=dict(commit='a' * 40, source_date_epoch=1),
+                  stem=stem, tools=dict(archiso='91-1'),
+                  arch_bootstrap=dict(commit='a' * 40, source_date_epoch=1),
                   stage2=dict(repository='https://example.invalid/stage2', commit='b' * 40),
                   inputs=dict(mode='development', archive_date='2026-10-25'),
                   environment=dict(LC_ALL='C.UTF-8', TZ='UTC', umask='022', SOURCE_DATE_EPOCH=1))
@@ -161,13 +176,14 @@ def compare(expected):
 
 
 assert compare(0)['equal'] is True
-for relative in ['fixture-dev-unsigned.iso', 'fixture-dev-unsigned.packages.tsv']:
+for relative in ['fixture-dev-unsigned.iso', 'fixture-dev-unsigned.packages.tsv', 'fixture-dev-unsigned.notices.tar']:
     path = records[1].parent / relative
     original = path.read_bytes()
     path.write_bytes(b'different\n')
     compare(1)
     record = json.loads(records[1].read_text())
-    field = 'image' if relative.endswith('.iso') else 'manifest'
+    field = next(field for field, ext in [('image', '.iso'), ('manifest', '.packages.tsv'),
+                                           ('notices', '.notices.tar')] if relative.endswith(ext))
     record[field]['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
     records[1].write_text(json.dumps(record))
     assert compare(1)['equal'] is False
@@ -177,9 +193,12 @@ for relative in ['fixture-dev-unsigned.iso', 'fixture-dev-unsigned.packages.tsv'
     compare(0)
     print('R06-' + field + ': altered bytes and altered record red/restored green')
 original = records[1].read_bytes()
-for field in ['inputs', 'arch_bootstrap', 'stage2', 'environment']:
+for field in ['inputs', 'arch_bootstrap', 'stage2', 'environment', 'tools', 'stem']:
     record = json.loads(original)
-    record[field]['unexpected'] = 'different'
+    if field == 'stem':
+        record[field] += '-different'
+    else:
+        record[field]['unexpected'] = 'different'
     records[1].write_text(json.dumps(record))
     compare(1)
     records[1].write_bytes(original)
@@ -308,8 +327,10 @@ for name in ('one', 'two'):
     directory = work / name
     directory.mkdir()
     stem = 'fixture-rc'
-    record = dict(schema_version=1, mode='release-candidate', signed=False, release_eligible=False,
-                  stem=stem, arch_bootstrap=dict(commit='a' * 40, source_date_epoch=1),
+    record = dict(schema_version=1, mode='release-candidate', signed=False, release_eligible=True,
+                  verify=dict(exit=0), signature_policy={'pass': True},
+                  stem=stem, tools=dict(archiso='91-1'),
+                  arch_bootstrap=dict(commit='a' * 40, source_date_epoch=1),
                   stage2=dict(commit='b' * 40), inputs=dict(mode='release-candidate'), environment={})
     for field, ext in [('image', '.iso'), ('manifest', '.packages.tsv'), ('notices', '.notices.tar')]:
         path = directory / (stem + ext)
@@ -376,6 +397,32 @@ refused('unavailable')
 inputs['release_key_fingerprint'] = fpr
 prepare()
 refused('no frozen campaign pair')
+for field, bad, reason in [('verify', {'exit': 1}, 'verification did not pass'),
+                           ('verify', {}, 'verification did not pass'),
+                           ('signature_policy', {'pass': False}, 'signature policy did not pass'),
+                           ('signature_policy', {}, 'signature policy did not pass'),
+                           ('release_eligible', False, 'not release eligible')]:
+    for path in records:
+        prepare()
+        original = path.read_bytes()
+        record = json.loads(original)
+        record[field] = bad
+        path.write_text(json.dumps(record))
+        names = [p for p in path.parent.iterdir() if p.name != 'SHA256SUMS']
+        (path.parent / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(names)))
+        comparison.write_text(json.dumps(api['comparison'](*records)))
+        refused(reason)
+        path.write_bytes(original)
+        names = [p for p in path.parent.iterdir() if p.name != 'SHA256SUMS']
+        (path.parent / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(names)))
+        comparison.write_text(json.dumps(api['comparison'](*records)))
+        refused('no frozen campaign pair')
+entries.append(dict(name='openssh', version='1-1', decision='admitted', audit='fixture only'))
+prepare()
+refused('excluded from the live payload')
+entries.pop()
+prepare()
+refused('no frozen campaign pair')
 PY
 }
 
@@ -409,5 +456,142 @@ for failure in ["==> ERROR: binary not found: 'memdiskfind'\n", 'error: command 
     else:
         raise AssertionError('initramfs error was accepted')
 api['check_build_log'](good)
+PY
+}
+
+@test "builder pins require the exact archiso and keyring versions" {
+	python3 - "$REPO" <<'PY'
+import copy
+from pathlib import Path
+import runpy
+import sys
+
+api = runpy.run_path(str(Path(sys.argv[1]) / 'iso/build'))
+inputs = api['load_yaml'](Path(sys.argv[1]) / 'iso/build-inputs.yml')
+installed = {'archiso': inputs['archiso']['package_version'],
+             'archlinux-keyring': inputs['archlinux_keyring']}
+api['check_pins'](installed, inputs)
+for name in installed:
+    for value in [None, '', 'different-version']:
+        bad = copy.deepcopy(installed)
+        if value is None:
+            del bad[name]
+        else:
+            bad[name] = value
+        try:
+            api['check_pins'](bad, inputs)
+        except api['Refusal'] as error:
+            assert name in str(error), error
+        else:
+            raise AssertionError('R13-' + name + ': mismatched pin accepted')
+        api['check_pins'](installed, inputs)
+        print('R13-' + name + ': red/restored green')
+PY
+}
+
+@test "live cryptsetup must successfully report the exact argon2id capability" {
+	python3 - "$REPO" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+
+api = runpy.run_path(str(Path(sys.argv[1]) / 'iso/build'))
+good = 'PBKDF: pbkdf2 argon2i argon2id\n'
+api['check_argon'](0, good)
+for status, text in [(1, good), (0, 'pbkdf2 argon2i'), (0, ''), (0, 'notargon2id')]:
+    try:
+        api['check_argon'](status, text)
+    except api['Refusal'] as error:
+        assert 'argon2id' in str(error), error
+    else:
+        raise AssertionError('R14: missing live capability accepted')
+    api['check_argon'](0, good)
+    print('R14-argon2id: red/restored green')
+PY
+}
+
+@test "builder virtualization detection refuses absent or failed VM evidence" {
+	python3 - "$REPO" <<'PY'
+from pathlib import Path
+import runpy
+import subprocess
+import sys
+from unittest.mock import patch
+
+api = runpy.run_path(str(Path(sys.argv[1]) / 'iso/build'))
+for kind in ['kvm', 'qemu']:
+    api['check_vm'](0, kind)
+for status, kind in [(1, 'kvm'), (1, ''), (0, ''), (0, 'none')]:
+    try:
+        api['check_vm'](status, kind)
+    except api['Refusal'] as error:
+        assert 'not inside a virtual machine' in str(error), error
+    else:
+        raise AssertionError('R15: absent VM evidence accepted')
+    api['check_vm'](0, 'kvm')
+    print('R15-virtualization: red/restored green')
+# Exercise the command-result adapter without running a host build.
+for status, kind in [(0, 'kvm'), (1, 'none')]:
+    result = subprocess.CompletedProcess(['systemd-detect-virt', '--vm'], status, kind + '\n', '')
+    with patch.dict(api['in_vm'].__globals__, run=lambda argv: result):
+        if status == 0:
+            assert api['in_vm'](require=True) == kind
+        else:
+            try:
+                api['in_vm'](require=True)
+            except api['Refusal']:
+                pass
+            else:
+                raise AssertionError('R15: in_vm bypassed the VM guard')
+PY
+}
+
+@test "installed closure agrees with pacman query pkglist and package cache" {
+	python3 - "$REPO" <<'PY'
+import copy
+from pathlib import Path
+import runpy
+import sys
+
+api = runpy.run_path(str(Path(sys.argv[1]) / 'iso/build'))
+identity = ('base', '3-3')
+good = dict(queried=[identity], packages=[dict(name='base', version='3-3')],
+            pkglist=[identity], cached={identity: Path('base.pkg.tar.zst')},
+            cache_names=['base.pkg.tar.zst', 'base.pkg.tar.zst.sig'])
+api['check_closure'](**good)
+cases = [
+    ('query-absent', 'queried', []),
+    ('query-version', 'queried', [('base', '3-4')]),
+    ('query-extra', 'queried', [identity, ('unexpected', '1-1')]),
+    ('pkglist-absent', 'pkglist', []),
+    ('pkglist-version', 'pkglist', [('base', '3-4')]),
+    ('pkglist-extra', 'pkglist', [identity, ('unexpected', '1-1')]),
+    ('cache-missing', 'cached', {}),
+    ('cache-version', 'cached', {('base', '3-4'): Path('base.pkg.tar.zst')}),
+    ('cache-extra', 'cache_names', good['cache_names'] + ['extra.pkg.tar.zst']),
+    ('cache-junk', 'cache_names', good['cache_names'] + ['unexpected']),
+]
+for name, field, value in cases:
+    bad = copy.deepcopy(good)
+    bad[field] = value
+    try:
+        api['check_closure'](**bad)
+    except api['Refusal']:
+        pass
+    else:
+        raise AssertionError('R16-' + name + ': inconsistent closure accepted')
+    api['check_closure'](**good)
+    print('R16-' + name + ': red/restored green')
+bad = dict(queried=[('openssh', '1-1')], packages=[dict(name='openssh', version='1-1')],
+           pkglist=[('openssh', '1-1')], cached={('openssh', '1-1'): Path('openssh.pkg.tar.zst')},
+           cache_names=['openssh.pkg.tar.zst'])
+try:
+    api['check_closure'](**bad)
+except api['Refusal'] as error:
+    assert 'excluded' in str(error), error
+else:
+    raise AssertionError('R16-excluded: excluded installed package accepted')
+api['check_closure'](**good)
+print('R16-excluded: red/restored green')
 PY
 }

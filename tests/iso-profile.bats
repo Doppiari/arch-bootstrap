@@ -13,6 +13,51 @@ setup() {
 	[ "$status" -eq 0 ]
 }
 
+@test "live accounts boot paths loader keys and permissions are exact" {
+	python3 - "$REPO" "$FIXTURE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+
+repo, root = map(Path, sys.argv[1:])
+api = runpy.run_path(str(repo / 'iso/build'))
+profile = root / 'iso/profile'
+assert api['check_profile'](root) == []
+survived = []
+cases = [
+    ('P35-root-shell', 'airootfs/etc/passwd', '/usr/bin/bash', '/root/arch-bootstrap/bootstrap'),
+    ('P35-extra-root', 'airootfs/etc/passwd', '\n', '\nalternate:x:0:0:root:/root:/usr/bin/bash\n'),
+    ('P36-hostname', 'airootfs/etc/hostname', 'hyperlab-installer', 'unexpected'),
+    ('P37-loader-extra', 'efiboot/loader/loader.conf', 'timeout 5', 'timeout 5\nauto-entries yes'),
+    ('P37-loader-duplicate', 'efiboot/loader/loader.conf', 'timeout 5', 'timeout 5\ntimeout 0'),
+    ('P37-loader-missing', 'efiboot/loader/loader.conf', 'timeout 5\n', ''),
+    ('P37-loader-timeout', 'efiboot/loader/loader.conf', 'timeout 5', 'timeout 0'),
+    ('P38-linux', 'efiboot/loader/entries/01-live.conf', '/%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux', '/other-kernel'),
+    ('P38-initrd', 'efiboot/loader/entries/01-live.conf', '/%INSTALL_DIR%/boot/%ARCH%/initramfs-linux.img', '/other-initramfs'),
+    ('P38-sort-key', 'efiboot/loader/entries/01-live.conf', 'sort-key 01', 'sort-key 99'),
+    ('P39-shadow-mode', 'profiledef.sh', '0:0:400', '0:0:644'),
+    ('P39-root-mode', 'profiledef.sh', '0:0:750', '0:0:777'),
+    ('P39-missing-mode', 'profiledef.sh', '  ["/etc/shadow"]="0:0:400"\n', ''),
+    ('P39-extra-mode', 'profiledef.sh', 'file_permissions=(', 'file_permissions=(\n  ["/etc/passwd"]="0:0:644"'),
+]
+for name, relative, old, new in cases:
+    path = profile / relative
+    original = path.read_text()
+    assert old in original, name
+    path.write_text(original.replace(old, new, 1))
+    try:
+        errors = api['check_profile'](root)
+        if not errors:
+            survived.append(name)
+        print(f'{name}: {errors or "mutation stayed green"}')
+    finally:
+        path.write_text(original)
+    assert api['check_profile'](root) == [], f'{name}: restoration failed'
+    print(name + ': restored green')
+assert not survived, survived
+PY
+}
+
 @test "every static profile invariant rejects its mutation and accepts restoration" {
 	python3 - "$REPO" "$FIXTURE" <<'PY'
 import copy

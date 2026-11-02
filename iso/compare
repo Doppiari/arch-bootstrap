@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two build records and the actual image/manifest bytes they name."""
+"""Compare two build records and the actual image, manifest and notice bytes."""
 
 from __future__ import annotations
 
@@ -93,9 +93,13 @@ def bind_record(path: Path) -> dict[str, Any]:
         actual = safe_file(path.parent, value.get("file"))
         if sha256_file(actual) != value["sha256"]:
             raise Refusal(f"{actual}: differs from build record")
-    for field in ("inputs", "arch_bootstrap", "stage2", "environment"):
+    for field in ("inputs", "arch_bootstrap", "stage2", "environment", "tools"):
         if not isinstance(record.get(field), dict):
             raise Refusal(f"{path}: missing {field}")
+    if not isinstance(record.get("stem"), str) or not SAFE_NAME.fullmatch(
+        record["stem"]
+    ):
+        raise Refusal(f"{path}: missing or unsafe stem")
     return record
 
 
@@ -104,10 +108,12 @@ def comparison(first: Path, second: Path) -> dict[str, Any]:
         raise Refusal("two distinct build records are required")
     records = [bind_record(path) for path in (first, second)]
     differences = []
-    for field in ("mode", "inputs", "arch_bootstrap", "stage2", "environment"):
+    for field in (
+        "mode", "inputs", "arch_bootstrap", "stage2", "environment", "tools", "stem"
+    ):
         if records[0][field] != records[1][field]:
             differences.append(field)
-    for field in ("image", "manifest"):
+    for field in ("image", "manifest", "notices"):
         if records[0][field]["sha256"] != records[1][field]["sha256"]:
             differences.append(field)
     return {

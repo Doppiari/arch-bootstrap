@@ -12,7 +12,6 @@ import runpy
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 _API = runpy.run_path(str(Path(__file__).with_name("compare")))
 _BUILD = _API["_API"]
@@ -35,6 +34,20 @@ def eligible(root: Path, record_path: Path, comparison_path: Path | None) -> Non
         raise Refusal("two-build comparison is altered or unequal")
     if record_path.resolve() not in [path.resolve() for path in paths]:
         raise Refusal("comparison does not include this build")
+    for path in paths:
+        compared = _API["bind_record"](path)
+        verification = compared.get("verify", {})
+        if (
+            not isinstance(verification, dict)
+            or type(verification.get("exit")) is not int
+            or verification["exit"] != 0
+        ):
+            raise Refusal("build verification did not pass")
+        policy = compared.get("signature_policy", {})
+        if not isinstance(policy, dict) or policy.get("pass") is not True:
+            raise Refusal("build signature policy did not pass")
+        if compared.get("release_eligible") is not True:
+            raise Refusal("build is not release eligible")
     commit = record["arch_bootstrap"]["commit"]
     if not _BUILD["HEX40"].fullmatch(commit):
         raise Refusal("invalid source commit")
@@ -43,11 +56,10 @@ def eligible(root: Path, record_path: Path, comparison_path: Path | None) -> Non
     inputs_data = _BUILD["git"](root, "show", f"{commit}:iso/build-inputs.yml")
     admission = _BUILD["yaml"].load(admission_data, Loader=_BUILD["UniqueKeyLoader"])
     inputs = _BUILD["yaml"].load(inputs_data, Loader=_BUILD["UniqueKeyLoader"])
-    entries: dict[str, Any] = {}
-    for entry in admission["packages"]:
-        if entry["name"] in entries:
-            raise Refusal("duplicate admission entry")
-        entries[entry["name"]] = entry
+    errors: list[str] = []
+    entries = _BUILD["parse_admission"](admission, errors)
+    if errors:
+        raise Refusal("invalid admission at C: " + "; ".join(errors))
     manifest = record_path.parent / record["manifest"]["file"]
     if _BUILD["judge_admission"](_BUILD["read_manifest"](manifest), entries):
         raise Refusal("installed closure is not admitted at its exact versions")

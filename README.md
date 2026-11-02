@@ -241,6 +241,9 @@ The local development gate produced two real images at
 their [image mismatch is diagnosed](problems/iso-build-cache-and-timestamps.md),
 and the first passed a no-write UEFI VM smoke test. This is software-verified
 only; both images remain unsigned and ineligible for release.
+Offline regression checks also cover the exact live root shell, boot paths,
+permissions and build refusals; comparison binds notices and tool versions,
+and signing requires successful verification and signature-policy records.
 Interesting tooling failures are indexed under
 [`problems/README.md`](problems/README.md).
 

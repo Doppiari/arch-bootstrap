@@ -38,3 +38,6 @@ the check that now prevents a regression.
 - [`iso-exact-input-scalars.md`](iso-exact-input-scalars.md)
   records trailing line breaks in revision fields, duplicate literal
   permissions and an ignored mode flag.
+- [`iso-profile-and-release-guard-gaps.md`](iso-profile-and-release-guard-gaps.md)
+  records missing content checks in enumerated overlays and the offline
+  regression coverage for build and release refusals.

@@ -162,6 +162,9 @@ payload and follow the admission rule.
   unset timezone otherwise produces an interactive Initial Setup prompt
   before login. This disables a service rather than adding an entrypoint;
   the validator enumerates and requires this exact disabling overlay.
+- **Serial console:** `console=ttyS0,115200` adds a serial root login with
+  no password through `serial-getty@ttyS0`; unlike tty1's autologin, it
+  requires entering `root`, and physical serial access grants a root shell.
 - **Branding:** every `releng` text naming Arch Linux as the medium's
   identity is replaced: `iso_name`, `iso_label`, `iso_publisher`,
   `iso_application`, `install_dir`, the boot entry title and `motd`
@@ -379,7 +382,8 @@ time. `machine-id` is already written as `uninitialized` by mkarchiso.
 
 **Two-build comparison.** Two builds from the same inputs, each in a fresh
 isolated builder with an empty work directory and an empty package cache,
-are compared by the SHA-256 of the image and of the package manifest:
+are compared by the SHA-256 of the image, package manifest and notices,
+as well as the recorded inputs, tool versions, environment and file stem:
 
 - equal manifests and equal images: the build is reproducible for those
   inputs, and only then is it eligible for signing;
