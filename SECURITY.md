@@ -5,15 +5,15 @@
 Report a vulnerability in `arch-bootstrap` privately, through GitHub's
 private vulnerability reporting for this repository: the
 **Report a vulnerability** button on
-<https://github.com/importriri/arch-bootstrap/security/advisories>, which
+<https://github.com/Doppiari/arch-bootstrap/security/advisories>, which
 opens the form at
-<https://github.com/importriri/arch-bootstrap/security/advisories/new>.
+<https://github.com/Doppiari/arch-bootstrap/security/advisories/new>.
 A report goes to the repository's maintainer, named in
 [`AUTHORS.md`](AUTHORS.md). Do not open a public issue, pull request or
 discussion about it.
 
 A flaw in the stage-2 automation, `hyperlab-ansible`, belongs to that
-repository's own [security policy](https://github.com/importriri/hyperlab-ansible/blob/main/SECURITY.md).
+repository's own [security policy](https://github.com/Doppiari/hyperlab-ansible/blob/main/SECURITY.md).
 When a flaw crosses the hand-off between the two, for example a storage
 contract this repository writes and stage 2 accepts when it should not,
 report it here and say so.

@@ -60,7 +60,7 @@ It must end with `arch-bootstrap verification: PASS`. Do not run it with
 Alone, it reports that the cross-repository storage comparison was skipped
 and that nothing cross-repository was proved. When a change touches the
 storage contract, also run the comparison against a checkout of
-[`hyperlab-ansible`](https://github.com/importriri/hyperlab-ansible), as
+[`hyperlab-ansible`](https://github.com/Doppiari/hyperlab-ansible), as
 the required CI job does:
 
 ```bash
@@ -136,6 +136,6 @@ contribution brings in must be recorded there too.
 A green `verify.sh` is software evidence, not a hardware result. Do not add
 "works on this laptop" to this repository. Hardware compatibility is
 recorded, sanitized, through the separate process in
-[`arch-hypervisor-lab`](https://github.com/importriri/arch-hypervisor-lab/blob/main/hardware/README.md),
+[`arch-hypervisor-lab`](https://github.com/Doppiari/arch-hypervisor-lab/blob/main/hardware/README.md),
 against exact commits, and only after the gates in
 [`docs/release-gates.md`](docs/release-gates.md) pass.

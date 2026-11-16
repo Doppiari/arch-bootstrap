@@ -1,6 +1,6 @@
 # arch-bootstrap
 
-![lint](https://github.com/importriri/arch-bootstrap/actions/workflows/ci.yml/badge.svg)
+![lint](https://github.com/Doppiari/arch-bootstrap/actions/workflows/ci.yml/badge.svg)
 
 A minimal, test-driven Arch Linux bootstrap written in Bash.
 
@@ -10,7 +10,7 @@ A minimal, test-driven Arch Linux bootstrap written in Bash.
 
 **The host it produces:** TTY only: no GPU driver, Bluetooth or desktop. Its
 first job is to fetch
-[`hyperlab-ansible`](https://github.com/importriri/hyperlab-ansible)
+[`hyperlab-ansible`](https://github.com/Doppiari/hyperlab-ansible)
 and become the hypervisor lab. `iwd`, `systemd-networkd`,
 `systemd-resolved`, Git and Ansible are installed and enabled before hand-off.
 
@@ -161,7 +161,7 @@ iwctl station wlan0 connect "YOUR-SSID"
 ping -c1 archlinux.org
 
 # Fetch the stage-2 automation.
-git clone https://github.com/importriri/hyperlab-ansible
+git clone https://github.com/Doppiari/hyperlab-ansible
 
 # Enter the repository root so every relative contract path resolves correctly.
 cd hyperlab-ansible
@@ -269,7 +269,7 @@ Interesting tooling failures are indexed under
 
 `arch-bootstrap` builds the encrypted base host → `hyperlab-ansible`
 reconciles the hypervisor host and manages guest and service lifecycle →
-[`arch-hypervisor-lab`](https://github.com/importriri/arch-hypervisor-lab)
+[`arch-hypervisor-lab`](https://github.com/Doppiari/arch-hypervisor-lab)
 records architecture and sanitized hardware evidence.
 
 ## Security and contributing

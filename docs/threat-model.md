@@ -5,7 +5,7 @@ claim is checked. It covers one run of `bootstrap` from the Arch Linux live
 medium, and the installed host as that run leaves it, before stage 2.
 
 Stage 2 has its own
-[threat model](https://github.com/importriri/hyperlab-ansible/blob/main/docs/threat-model.md).
+[threat model](https://github.com/Doppiari/hyperlab-ansible/blob/main/docs/threat-model.md).
 It is a reference for what comes later, not evidence that its protections
 exist right after bootstrap: a freshly installed host has none of the
 network isolation, guest confinement, USB policy or audit that stage 2
