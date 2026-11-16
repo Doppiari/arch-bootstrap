@@ -737,7 +737,7 @@ for step in job["steps"]:
         target.mkdir(parents=True, exist_ok=True)
         checkouts.append(options)
         if options.get("repository"):
-            assert options["repository"] == "importriri/hyperlab-ansible"
+            assert options["repository"] == "Doppiari/hyperlab-ansible"
             assert options["ref"] == "main"
         else:
             # A recording verifier stands in for the complete battery. Execute
